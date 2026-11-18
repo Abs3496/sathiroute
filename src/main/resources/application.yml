@@ -1,0 +1,122 @@
+spring:
+  application:
+    name: sathiroute
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${ROUTEMESH_DB_URL:jdbc:postgresql://localhost:5432/routemesh}
+    username: ${ROUTEMESH_DB_USER:routemesh}
+    password: ${ROUTEMESH_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 20
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${ROUTEMESH_REDIS_HOST:localhost}
+      port: ${ROUTEMESH_REDIS_PORT:6379}
+      password: ${ROUTEMESH_REDIS_PASSWORD:}
+  kafka:
+    bootstrap-servers: ${ROUTEMESH_KAFKA:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        linger.ms: 5
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+  mail:
+    host: ${ROUTEMESH_SMTP_HOST:localhost}
+    port: ${ROUTEMESH_SMTP_PORT:1025}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${ROUTEMESH_ISSUER:http://localhost:8080/default}
+  servlet:
+    multipart:
+      enabled: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${ROUTEMESH_PORT:8080}
+  shutdown: graceful
+  tomcat:
+    max-swallow-size: 4MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      percentiles:
+        routemesh.plan.solve: 0.5,0.95,0.99
+
+routemesh:
+  security:
+    dispatcher-subjects: ${ROUTEMESH_DISPATCHER_SUBJECTS:}
+    admin-subjects: ${ROUTEMESH_ADMIN_SUBJECTS:}
+    operations-manager-subjects: ${ROUTEMESH_OPERATIONS_MANAGER_SUBJECTS:}
+    service-partner-subjects: ${ROUTEMESH_SERVICE_PARTNER_SUBJECTS:}
+    api-requests-per-minute: ${ROUTEMESH_API_REQUESTS_PER_MINUTE:300}
+    otp-key: ${ROUTEMESH_OTP_KEY:}
+    public-base-url: ${ROUTEMESH_PUBLIC_BASE_URL:http://127.0.0.1:8970}
+  mail:
+    from: ${ROUTEMESH_MAIL_FROM:dispatch@routemesh.example.test}
+    ops-address: ${ROUTEMESH_OPS_ADDRESS:ops@routemesh.example.test}
+  planning:
+    road-factor: ${ROUTEMESH_ROAD_FACTOR:1.35}
+    planning-kmh: ${ROUTEMESH_PLANNING_KMH:22}
+    budget: ${ROUTEMESH_PLAN_BUDGET:PT1S}
+    insert-budget: PT0.05S
+    service-minutes: ${ROUTEMESH_SERVICE_MINUTES:5}
+    candidate-ring: ${ROUTEMESH_CANDIDATE_RING:6}
+    zone: ${ROUTEMESH_ZONE:Asia/Kolkata}
+  tracking:
+    h3-resolution: 9
+    ewma-alpha: 0.2
+    max-speed-kmh: 130
+    simplify-meters: 8
+    max-ping-age: PT6H
+    partner-max-speed-kmh: ${ROUTEMESH_PARTNER_MAX_SPEED_KMH:130}
+    partner-max-location-age: ${ROUTEMESH_PARTNER_MAX_LOCATION_AGE:PT15M}
+    partner-location-ttl: ${ROUTEMESH_PARTNER_LOCATION_TTL:PT15M}
+    partner-location-history-retention: ${ROUTEMESH_PARTNER_LOCATION_HISTORY_RETENTION:P30D}
+    location-history-purge-delay-ms: ${ROUTEMESH_LOCATION_HISTORY_PURGE_DELAY_MS:86400000}
+    partner-nearby-meters: ${ROUTEMESH_PARTNER_NEARBY_METERS:500}
+    partner-arrived-meters: ${ROUTEMESH_PARTNER_ARRIVED_METERS:100}
+    sla-margin: ${ROUTEMESH_SLA_MARGIN:PT10M}
+    gap-wait: ${ROUTEMESH_GAP_WAIT:PT2M}
+  delivery:
+    max-attempts: 3
+    pod-radius-meters: ${ROUTEMESH_POD_RADIUS_M:150}
+    fence-meters: 60
+    hub-fence-meters: 250
+    max-photo-bytes: 2000000
+    tracking-ttl-after-delivery: P7D
+  retention:
+    pings: ${ROUTEMESH_PING_RETENTION:P30D}
+  jobs:
+    enabled: ${ROUTEMESH_JOBS_ENABLED:true}
+  service:
+    completion-otp-required: ${ROUTEMESH_SERVICE_COMPLETION_OTP_REQUIRED:false}
+    evidence-max-bytes: ${ROUTEMESH_SERVICE_EVIDENCE_MAX_BYTES:2000000}
+  allocation:
+    offer-ttl: ${ROUTEMESH_ALLOCATION_OFFER_TTL:PT5M}
+    max-location-age: ${ROUTEMESH_ALLOCATION_MAX_LOCATION_AGE:PT15M}
+    max-workload: ${ROUTEMESH_ALLOCATION_MAX_WORKLOAD:8}
+    max-attempts: ${ROUTEMESH_ALLOCATION_MAX_ATTEMPTS:5}
+    travel-buffer-minutes: ${ROUTEMESH_ALLOCATION_TRAVEL_BUFFER:15}
+    poll-delay-ms: ${ROUTEMESH_ALLOCATION_POLL_MS:5000}
