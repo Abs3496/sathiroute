@@ -65,6 +65,10 @@ management:
         routemesh.plan.solve: 0.5,0.95,0.99
 
 routemesh:
+  demo-auth:
+    enabled: ${ROUTEMESH_DEMO_AUTH_ENABLED:false}
+  demo-api:
+    enabled: ${ROUTEMESH_DEMO_API_ENABLED:false}
   security:
     dispatcher-subjects: ${ROUTEMESH_DISPATCHER_SUBJECTS:}
     admin-subjects: ${ROUTEMESH_ADMIN_SUBJECTS:}

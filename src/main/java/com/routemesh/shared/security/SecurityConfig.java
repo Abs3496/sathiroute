@@ -47,6 +47,7 @@ class SecurityConfig {
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/", "/index.html", "/styles.css", "/app.js", "/favicon.ico").permitAll()
                         .requestMatchers("/dev/session").permitAll()
+                        .requestMatchers("/dev/demo/**").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/track/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/v1/track/*/reschedule", "/v1/track/*/otp:resend").permitAll()

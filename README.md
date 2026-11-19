@@ -32,7 +32,7 @@ docker compose --env-file .env up --build
 
 The API and web console bind to `127.0.0.1:8970`, demo OAuth to `127.0.0.1:8971`, and Mailpit to `127.0.0.1:8972`. The OAuth issuer is only for development. On Windows, helper scripts require Git Bash or WSL.
 
-Open `http://127.0.0.1:8970/` for the web console. Without credentials it shows labeled preview data. Use **Connect API** to paste a bearer access token for live data. A customer-role token can create bookings; admin/operator permissions are required for operations panels. Authentication remains with the configured OIDC provider.
+Open `http://127.0.0.1:8970/` for the web console. Local Compose enables a clearly labelled **Demo workspace** backed by `/dev/demo/**`; it loads showcase bookings, partners, shipments, routes, and reports so the dashboard actions can be tried without OIDC. Demo mutations live in memory and reset when the app restarts or from Settings. Use **Connect API** to switch to a real OIDC bearer token; real data continues to use the authenticated `/v1` APIs. The demo API is disabled by default outside Compose (`ROUTEMESH_DEMO_API_ENABLED=false`) and is not for production.
 
 To run against provisioned dependencies, configure the `ROUTEMESH_*` values documented in `src/main/resources/application.yml` and run `mvn spring-boot:run`.
 

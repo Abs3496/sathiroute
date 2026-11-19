@@ -111,13 +111,13 @@ Prerequisites: Java 17, Maven 3.9+, Docker Engine aur Compose v2. `.env.example`
 docker compose --env-file .env up --build
 ```
 
-Local ports loopback par: API/web console `127.0.0.1:8970`, demo OAuth issuer `:8971`, Mailpit UI `:8972`. `http://127.0.0.1:8970/` par console khulta hai; **Connect API** se bearer token dekar live API use ki ja sakti hai. Demo preview credentials ke bina bhi labeled sample data dikhata hai. Production OIDC issuer aur role config alag set karein.
+Local ports loopback par: API/web console `127.0.0.1:8970`, development OAuth issuer `:8971`, Mailpit UI `:8972`. `http://127.0.0.1:8970/` par console khulta hai. Local Compose par dashboard clearly-labelled demo dataset `/dev/demo/**` se auto-load karta hai; isse bookings, partners, shipments, routes, reports aur status actions bina OIDC token ke try kiye ja sakte hain. Demo changes memory-only hain aur restart/Settings reset par wapas default ho jaate hain. Real records ke liye **Connect API** se OIDC bearer token use karein; production OIDC issuer aur roles alag configure karein. Demo API ka config default false hai aur production mein enable na karein.
 
 Dependencies pehle se chal rahi hon to `src/main/resources/application.yml` ke `ROUTEMESH_*` values configure karke `mvn spring-boot:run` chala sakte hain. Configuration mein DB URL/user/password, Redis, Kafka, SMTP, issuer, planning/tracking/allocation/security knobs hain.
 
 ## 11. Verification aur tests
 
-`mvn clean test` unit aur architecture tests chalata hai. `mvn verify` Failsafe/Testcontainers integration flows bhi chalata hai, jisme Docker chahiye. `mvn clean package` packaged application banata hai. Integration tests PostgreSQL/PostGIS aur Kafka containers ke saath delivery, concurrency aur service booking flows exercise karte hain. Is guide ko likhte waqt tests execute nahi kiye gaye.
+`mvn clean test` unit aur architecture tests chalata hai. `mvn verify` Failsafe/Testcontainers integration flows bhi chalata hai, jisme Docker chahiye. `mvn clean package` packaged application banata hai. Integration tests PostgreSQL/PostGIS aur Kafka containers ke saath delivery, concurrency aur service booking flows exercise karte hain.
 
 ## 12. Deployment aur current boundaries
 

@@ -2,6 +2,20 @@
 
 The application exposes APIs under `/v1`. Routes require a bearer JWT from the configured OAuth2/OIDC issuer. Customer and partner APIs enforce the matching JWT role plus subject ownership. Accepted role claims include `roles`, `authorities`, `realm_access.roles`, and `resource_access.*.roles`. Configure `ROUTEMESH_ADMIN_SUBJECTS`, `ROUTEMESH_OPERATIONS_MANAGER_SUBJECTS`, `ROUTEMESH_SERVICE_PARTNER_SUBJECTS`, and the legacy full-privilege `ROUTEMESH_DISPATCHER_SUBJECTS` for trusted identities. Registration binds a profile to the token's `sub`; there is no local password or login endpoint. Authenticated requests are rate limited per subject using Redis (default 300/minute).
 
+## Local showcase API
+
+The Compose development stack enables an isolated, in-memory showcase API at `/dev/demo/**` so the dashboard can be tried without an OIDC token. Its records are intentionally synthetic, marked as **Demo data** in the UI, and never written to PostgreSQL. They reset when the app restarts or when `POST /dev/demo/reset` is called. The API is disabled by default (`ROUTEMESH_DEMO_API_ENABLED=false`) and must not be enabled in production.
+
+| Method and path | Behavior |
+|---|---|
+| `GET /dev/demo/workspace` | Full dashboard dataset: bookings, partners, journeys, routes, shipments, services, metrics, and activity. |
+| `GET /dev/demo/reports` | Summary report counts for the current demo records. |
+| `POST /dev/demo/reset` | Restore the initial showcase dataset. |
+| `POST /dev/demo/bookings`, `PATCH /dev/demo/bookings/{id}` | Create a demo booking or advance its status. |
+| `POST /dev/demo/partners`, `PATCH /dev/demo/partners/{id}` | Add a pending demo partner or approve/activate it. |
+| `POST /dev/demo/shipments`, `PATCH /dev/demo/shipments/{id}` | Create a demo shipment or update its delivery status. |
+| `PATCH /dev/demo/services/{id}` | Enable or pause a demo service. |
+
 ## Partner management APIs
 
 | Method and path | Access | Behavior |
@@ -78,3 +92,37 @@ Service codes are submitted identifiers; there is no admin-managed service catal
 Consult Spring controller mappings in `src/main/java/com/routemesh/*/adapter` for request DTOs and exact paths. JWT or device token requirements vary by route and are enforced in `SecurityConfig`.
 
 Partner GPS is keyed and consumed through a separate Kafka topic. Fresh locations are cached in Redis and stored in PostGIS history; booking tracking uses coarse H3 location for customers and exact location for dispatchers. Booking event email notifications use the transactional outbox and Kafka. Tracking thresholds and TTL are configurable under `routemesh.tracking`.
+
+## Complete delivery and platform route index
+
+The home-care routes and their request/access details are listed above. This index adds the exact paths for the existing delivery APIs. Driver device routes require the issued device credential; public tracking routes use an unguessable tracking token; remaining operational routes require their configured JWT roles. See `SecurityConfig` and each controller for the enforcement details.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/hubs` | Create an operating hub |
+| `POST` | `/v1/hubs/{hubId}/vehicles` | Add a vehicle and shift/capacity data |
+| `POST` | `/v1/hubs/{hubId}/drivers` | Add a driver |
+| `POST` | `/v1/drivers/{driverId}/devices` | Issue a driver device credential |
+| `POST` | `/v1/shipments` | Create an idempotent delivery/return shipment |
+| `GET` | `/v1/shipments/{id}` | Read shipment details |
+| `POST` | `/v1/shipments/{id}/cancel` | Cancel an eligible shipment |
+| `POST` | `/v1/hubs/{hubId}/plans` | Plan a hub's service date |
+| `GET` | `/v1/routes/{id}` | Read route and stops |
+| `POST` | `/v1/routes/{id}/insertions` | Insert a late shipment into a planned route |
+| `POST` | `/v1/routes/{id}/dispatch` | Assign a route to a driver |
+| `POST` | `/v1/dispatch:auto` | Find a feasible route for one shipment |
+| `GET` | `/v1/drivers/{driverId}/route` | Read the authenticated driver's active route |
+| `POST` | `/v1/drivers/{driverId}/pings:batch` | Submit sequenced device GPS fixes |
+| `POST` | `/v1/drivers/{driverId}/events:batch` | Submit ordered shipment status events |
+| `POST` | `/v1/shipments/{shipmentId}/events` | Add an operational shipment event |
+| `GET` | `/v1/shipments/{shipmentId}/timeline` | Read shipment event timeline |
+| `POST` | `/v1/shipments/{shipmentId}/pod` | Submit proof of delivery |
+| `GET` | `/v1/track/{token}` | Read customer-safe public delivery tracking |
+| `POST` | `/v1/track/{token}/reschedule` | Reschedule through the public tracking token |
+| `POST` | `/v1/track/{token}/otp:resend` | Request another delivery code |
+| `POST` | `/dev/session` | Local development-only token convenience endpoint; disabled unless explicitly enabled |
+| `GET` | `/actuator/health` | Application health |
+| `GET` | `/actuator/health/readiness` | Container readiness probe |
+| `GET` | `/actuator/prometheus` | Prometheus metrics |
+
+The bundled operations console is intentionally not a fixture generator: all displayed booking, partner, route, tracking, and summary data comes from API responses. Empty state means the connected account has no accessible records yet.

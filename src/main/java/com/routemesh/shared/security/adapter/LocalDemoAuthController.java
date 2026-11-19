@@ -1,4 +1,4 @@
-package com.routemesh.shared.security;
+package com.routemesh.shared.security.adapter;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
