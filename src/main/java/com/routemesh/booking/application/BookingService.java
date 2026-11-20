@@ -7,7 +7,9 @@ package com.routemesh.booking.application;
 
 import com.routemesh.booking.application.BookingStore.Booking;
 import com.routemesh.booking.application.BookingStore.Customer;
+import com.routemesh.booking.application.BookingStore.PartnerMatch;
 import com.routemesh.booking.domain.BookingStatus;
+import com.routemesh.catalog.application.CatalogStore;
 import com.routemesh.geo.domain.GeoPoint;
 import com.routemesh.idempotency.application.IdempotencyService;
 import com.routemesh.idempotency.application.Idempotent;
@@ -36,15 +38,17 @@ public class BookingService {
     private final TransactionTemplate tx;
     private final Clock clock;
     private final RouteMeshProperties props;
+    private final CatalogStore serviceCatalog;
 
     public BookingService(BookingStore store, IdempotencyService idempotency, PlatformTransactionManager txManager,
-                          Clock clock, RouteMeshProperties props) {
+                          Clock clock, RouteMeshProperties props, CatalogStore serviceCatalog) {
         this.store = store;
         this.idempotency = idempotency;
         this.tx = new TransactionTemplate(txManager);
         this.tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
         this.props = props;
+        this.serviceCatalog = serviceCatalog;
     }
 
     public Customer customer(Caller caller) {
@@ -74,6 +78,12 @@ public class BookingService {
     public Idempotent<Booking> create(Caller caller, String key, NewBooking in) {
         caller.requireCustomer();
         validateBooking(in);
+        if (!serviceCatalog.categoryActive(in.serviceCategory())) {
+            throw ApiException.conflict("service-category-paused", "This service category is not accepting new bookings");
+        }
+        if (serviceCatalog.offeringPaused(in.serviceCategory(), in.requiredSkill())) {
+            throw ApiException.conflict("service-offering-paused", "This service offering is not accepting new bookings");
+        }
         return idempotency.run("service-booking.create", caller, key, in, Booking.class,
                 () -> tx.execute(status -> insertBooking(caller, in)));
     }
@@ -95,6 +105,15 @@ public class BookingService {
         caller.requireOperations();
         validatePage(limit, offset);
         return store.adminBookings(limit, offset);
+    }
+
+    public List<PartnerMatch> recommendPartners(Caller caller, UUID id) {
+        caller.requireOperations();
+        Booking booking = store.booking(id).orElseThrow(() -> ApiException.notFound("booking"));
+        if (booking.status() != BookingStatus.PENDING) {
+            throw ApiException.conflict("booking-not-pending", "start allocation before searching for partners");
+        }
+        return store.recommendPartners(id, clock.instant().minusSeconds(900));
     }
 
     public List<Booking> partnerBookings(Caller caller, int limit, int offset) {

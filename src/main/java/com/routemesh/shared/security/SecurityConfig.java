@@ -45,7 +45,7 @@ class SecurityConfig {
         http.csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/", "/index.html", "/styles.css", "/app.js", "/favicon.ico").permitAll()
+                        .requestMatchers("/", "/index.html", "/styles.css", "/operations.css", "/app.js", "/favicon.ico").permitAll()
                         .requestMatchers("/dev/session").permitAll()
                         .requestMatchers("/dev/demo/**").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()

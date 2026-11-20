@@ -80,6 +80,10 @@ routemesh:
   mail:
     from: ${ROUTEMESH_MAIL_FROM:dispatch@routemesh.example.test}
     ops-address: ${ROUTEMESH_OPS_ADDRESS:ops@routemesh.example.test}
+  sms:
+    twilio-account-sid: ${ROUTEMESH_TWILIO_ACCOUNT_SID:}
+    twilio-auth-token: ${ROUTEMESH_TWILIO_AUTH_TOKEN:}
+    from-number: ${ROUTEMESH_TWILIO_FROM_NUMBER:}
   planning:
     road-factor: ${ROUTEMESH_ROAD_FACTOR:1.35}
     planning-kmh: ${ROUTEMESH_PLANNING_KMH:22}

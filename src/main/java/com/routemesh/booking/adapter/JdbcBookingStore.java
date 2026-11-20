@@ -213,6 +213,33 @@ class JdbcBookingStore implements BookingStore, BookingAllocationStore {
     }
 
     @Override
+    public List<BookingStore.PartnerMatch> recommendPartners(UUID bookingId, Instant locationCutoff) {
+        return db.sql("""
+                select p.id, p.name, p.phone, p.latitude, p.longitude,
+                       ST_Distance(p.geo_location, b.location) / 1000.0 as distance_km,
+                       p.active, p.available
+                from service_booking b
+                join service_partner p on p.active and p.available and p.registration_status='APPROVED'
+                  and p.geo_location is not null and p.location_updated_at >= ?
+                  and ST_DWithin(p.geo_location, b.location, p.service_radius_km * 1000)
+                where b.id=? and b.status='PENDING'
+                  and exists (select 1 from partner_skill s where s.partner_id=p.id
+                    and s.service_category=b.category and s.skill_code=b.required_skill and s.qualification_verified)
+                  and exists (select 1 from partner_availability a where a.partner_id=p.id and a.active
+                    and a.day_of_week=extract(isodow from b.appointment_date)::smallint
+                    and a.starts_at<=b.appointment_start::time and a.ends_at>=b.appointment_end::time)
+                  and not exists (select 1 from partner_time_off t where t.partner_id=p.id and t.unavailable_date=b.appointment_date)
+                  and not exists (select 1 from service_booking o where o.assigned_partner_id=p.id and o.id<>b.id
+                    and o.status in ('ASSIGNED','CONFIRMED','PARTNER_ON_THE_WAY','PARTNER_NEARBY','PARTNER_ARRIVED','IN_PROGRESS')
+                    and o.appointment_start < b.appointment_end and o.appointment_end > b.appointment_start)
+                order by p.geo_location <-> b.location, p.id limit 25
+                """).params(Timestamp.from(locationCutoff), bookingId)
+                .query((rs, n) -> new BookingStore.PartnerMatch(rs.getObject("id", UUID.class), rs.getString("name"),
+                        rs.getString("phone"), rs.getDouble("latitude"), rs.getDouble("longitude"),
+                        rs.getDouble("distance_km"), rs.getBoolean("active"), rs.getBoolean("available"))).list();
+    }
+
+    @Override
     public List<Booking> bookings(String subject, int limit, int offset) {
         return db.sql("select " + BOOKING_COLUMNS + "from service_booking where customer_subject = ? "
                         + "order by created_at desc, id limit ? offset ?")

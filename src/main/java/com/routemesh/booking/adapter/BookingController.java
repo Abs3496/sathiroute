@@ -101,6 +101,12 @@ class BookingController {
         return bookings.beginAllocation(caller, id);
     }
 
+    @GetMapping("/v1/admin/bookings/{id}/partner-recommendations")
+    List<com.routemesh.booking.application.BookingStore.PartnerMatch> recommendPartners(
+            Caller caller, @PathVariable UUID id) {
+        return bookings.recommendPartners(caller, id);
+    }
+
     @PostMapping("/v1/admin/bookings/{id}/reject")
     Booking reject(Caller caller, @PathVariable UUID id, @Valid @RequestBody RejectBooking in) {
         return bookings.reject(caller, id, in);

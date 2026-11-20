@@ -1,493 +1,391 @@
 (() => {
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const api = { base: localStorage.getItem('sathiroute.apiBase') || '', token: localStorage.getItem('sathiroute.token') || '', role: localStorage.getItem('sathiroute.role') || '', subject: localStorage.getItem('sathiroute.subject') || '', demo: false };
-  const today = new Date();
-  let currentPage = 'overview';
-  let bookings = [];
-  let partners = [];
-  let journeys = [];
-  let routes = [];
-  let shipments = [];
-  let services = [];
-  let demoActivity = [];
-  let demoMetrics = null;
+  const root = document.querySelector('#app');
+  const api = {
+    base: localStorage.getItem('sathiroute.apiBase') || '',
+    token: localStorage.getItem('sathiroute.token') || '',
+    role: localStorage.getItem('sathiroute.role') || '',
+    subject: localStorage.getItem('sathiroute.subject') || '',
+    demo: localStorage.getItem('sathiroute.mode') === 'demo',
+    portal: localStorage.getItem('sathiroute.portal') || '',
+    remember: true,
+  };
+  let page = 'dashboard';
+  let categoryFilter = 'all';
+  let selectedService = null;
   let bookingFilter = 'all';
-  let partnerFilter = 'all';
-  let routeDay = new Date();
+  let bookings = [], partners = [], journeys = [], services = [], activity = [], metrics = {};
+  const titles = { dashboard: 'Dashboard', bookings: 'Service bookings', partners: 'Care partners', operations: 'Service operations', services: 'Service categories', reports: 'Reports', profile: 'My workspace' };
+  const cats = { NURSING: 'Nursing', AYURVEDIC_THERAPY: 'Ayurvedic therapy', COUNSELLING: 'Counselling' };
+  const statuses = { NEW: 'New', PENDING: 'Awaiting partner', ASSIGNED: 'Partner assigned', CONFIRMED: 'Confirmed', PARTNER_ON_THE_WAY: 'On the way', PARTNER_NEARBY: 'Nearby', PARTNER_ARRIVED: 'Arrived', IN_PROGRESS: 'In progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled', REJECTED: 'Needs attention' };
+  const $ = (s, el = document) => el.querySelector(s);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const category = value => cats[value] || value || 'Care visit';
+  const statusName = value => statuses[value] || value || 'Scheduled';
+  const initials = value => String(value || 'SR').split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
+  const dateToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const dateLabel = value => value ? new Intl.DateTimeFormat('en-IN', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${value}T00:00:00`)) : 'Date pending';
+  const timeLabel = value => { if (!value) return 'Time pending'; const [h, m] = String(value).slice(0, 5).split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+  const isAdmin = () => ['ADMIN', 'DISPATCHER'].includes(api.role);
+  const isOps = () => api.role === 'OPERATIONS_MANAGER';
+  const portalLabel = () => api.portal === 'admin' ? 'Admin' : 'Employee';
+  const brand = `<span class="brand-symbol"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 4.5c-7.5 0-13.5 5.8-13.5 13 0 9.2 13.5 18 13.5 18s13.5-8.8 13.5-18c0-7.2-6-13-13.5-13Z"/><path d="M20 10.5v14M13 17.5h14"/></svg></span><span class="brand-word">Sathi<span>Route</span><small>HEALTHCARE OPERATIONS</small></span>`;
 
-  function isoDate(date) { return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
-  function prettyDate(date, options = { weekday: 'long', month: 'long', day: 'numeric' }) { return new Intl.DateTimeFormat('en-IN', options).format(date); }
-  const categoryLabel = value => ({ NURSING: 'Nursing', AYURVEDIC_THERAPY: 'Ayurvedic Therapy', COUNSELLING: 'Counselling' }[value] || value || 'Care visit');
-  const statusLabel = value => ({ NEW: 'New', PENDING: 'Awaiting partner', ASSIGNED: 'Partner assigned', CONFIRMED: 'Confirmed', PARTNER_ON_THE_WAY: 'On the way', PARTNER_NEARBY: 'Nearby', PARTNER_ARRIVED: 'Arrived', IN_PROGRESS: 'In progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled', REJECTED: 'Rejected', PLANNED: 'Planned', IN_TRANSIT: 'In transit', OUT_FOR_DELIVERY: 'Out for delivery', DELIVERED: 'Delivered', FAILED_ATTEMPT: 'Failed attempt', 'Needs partner': 'Awaiting partner' }[value] || value || 'Scheduled');
-  const statusClass = value => ({ PENDING: 'pending', NEW: 'pending', ASSIGNED: 'assigned', CONFIRMED: 'confirmed', PARTNER_ON_THE_WAY: 'assigned', PARTNER_NEARBY: 'assigned', PARTNER_ARRIVED: 'confirmed', IN_PROGRESS: 'in-progress', COMPLETED: 'completed', CANCELLED: 'cancelled', REJECTED: 'rejected' }[value] || 'pending');
-  const initials = name => (name || 'SP').split(/\s+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase();
-  const categoryClass = category => category === 'AYURVEDIC_THERAPY' ? 'ayurvedic' : category === 'COUNSELLING' ? 'counselling' : '';
-  const fmtTime = value => { if (!value) return '—'; const [h, m] = String(value).slice(0, 5).split(':').map(Number); if (Number.isNaN(h)) return value; return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
-  const timeFrom = value => { try { return new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' }).format(new Date(value)); } catch { return '—'; } };
-  const dateFromIso = value => value ? new Date(`${value}T00:00:00`) : today;
-  const statusPill = status => `<span class="status status-${statusClass(status)}">${escapeHtml(statusLabel(status))}</span>`;
-  function bookingAction(b) {
-    if (!api.token && !api.demo) return '';
-    if (api.role === 'SERVICE_PARTNER') {
-      if (b.status === 'ASSIGNED') return `<button class="inline-action-button" data-booking-action="accept" data-id="${escapeHtml(b.id)}" data-version="${b.version}">Accept</button><button class="inline-action-button" data-booking-action="reject" data-id="${escapeHtml(b.id)}" data-version="${b.version}">Decline</button>`;
-      if (b.status === 'CONFIRMED') return `<button class="inline-action-button" data-booking-action="arrive" data-id="${escapeHtml(b.id)}" data-version="${b.version}">Arrived</button>`;
-      if (b.status === 'PARTNER_ARRIVED') return `<button class="inline-action-button" data-booking-action="start" data-id="${escapeHtml(b.id)}" data-version="${b.version}">Start visit</button>`;
-      if (b.status === 'IN_PROGRESS') return `<button class="inline-action-button" data-booking-action="complete" data-id="${escapeHtml(b.id)}" data-version="${b.version}">Complete</button>`;
-    }
-    if (api.role === 'CUSTOMER' && b.completionPending) return `<button class="inline-action-button" data-booking-action="confirm" data-id="${escapeHtml(b.id)}">Confirm</button>`;
-    if (['ADMIN','DISPATCHER','OPERATIONS_MANAGER'].includes(api.role) && ['NEW','REJECTED'].includes(b.status)) return `<button class="inline-action-button" data-booking-action="allocate" data-id="${escapeHtml(b.id)}">Queue allocation</button>`;
-    return '';
-  }
-  function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-
-  function apiUrl(path) { return `${api.base.replace(/\/$/, '')}${path}`; }
-  function jwtClaims(token) { try { return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { return {}; } }
   function jwtRole(token) {
-    const c = jwtClaims(token); const values = [c.roles, c.authorities, c.realm_access?.roles, ...Object.values(c.resource_access || {}).map(v => v?.roles)].flat().filter(v => typeof v === 'string').map(v => v.toUpperCase().replace(/^ROLE_/, ''));
-    return ['ADMIN','DISPATCHER','OPERATIONS_MANAGER','SERVICE_PARTNER','CUSTOMER'].find(r => values.includes(r)) || (c.sub === 'dispatch@routemesh.example.test' ? 'ADMIN' : 'CUSTOMER');
+    try {
+      const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const claims = JSON.parse(decodeURIComponent(escape(atob(part))));
+      const values = [claims.roles, claims.authorities, claims.realm_access?.roles, ...Object.values(claims.resource_access || {}).map(v => v?.roles)].flat().filter(v => typeof v === 'string').map(v => v.toUpperCase().replace(/^ROLE_/, ''));
+      return ['ADMIN', 'DISPATCHER', 'OPERATIONS_MANAGER', 'SERVICE_PARTNER'].find(r => values.includes(r)) || (claims.sub === 'dispatch@routemesh.example.test' ? 'ADMIN' : '');
+    } catch { return ''; }
   }
   async function request(path, options = {}) {
-    if (!api.token) throw new Error('Connect an API token to load live data.');
-    const response = await fetch(apiUrl(path), { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${api.token}`, ...(options.headers || {}) } });
-    if (!response.ok) { let detail = `${response.status} ${response.statusText}`; try { const problem = await response.json(); detail = problem.detail || problem.title || detail; } catch {} const error = new Error(detail); error.status = response.status; throw error; }
-    if (response.status === 204) return null;
-    return response.json();
+    const response = await fetch(`${api.base.replace(/\/$/, '')}${path}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${api.token}`, ...(options.headers || {}) } });
+    if (!response.ok) { let message = `${response.status} ${response.statusText}`; try { const body = await response.json(); message = body.detail || body.title || message; } catch {} const error = new Error(message); error.status = response.status; throw error; }
+    return response.status === 204 ? null : response.json();
   }
   async function demoRequest(path, options = {}) {
     const response = await fetch(`/dev/demo${path}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } });
-    if (!response.ok) { let detail = `${response.status} ${response.statusText}`; try { const problem = await response.json(); detail = problem.detail || problem.title || detail; } catch {} throw new Error(detail); }
-    if (response.status === 204) return null;
-    return response.json();
+    if (!response.ok) { let message = `${response.status} ${response.statusText}`; try { const body = await response.json(); message = body.detail || body.title || message; } catch {} throw new Error(message); }
+    return response.status === 204 ? null : response.json();
   }
-  async function fetchAllBookings(path) {
-    const all = []; const seen = new Set();
-    for (let offset = 0; offset < 100000; offset += 100) {
-      const page = await request(`${path}?limit=100&offset=${offset}`);
-      if (!Array.isArray(page)) throw new Error('Booking API returned an unexpected response.');
-      let added = 0;
-      page.forEach(item => { const id = String(item.id || item.bookingId || ''); if (!id || !seen.has(id)) { if (id) seen.add(id); all.push(item); added += 1; } });
-      if (page.length < 100 || added === 0) break;
+  async function fetchAll(path) {
+    const list = [];
+    for (let offset = 0; offset < 10000; offset += 100) {
+      const batch = await request(`${path}?limit=100&offset=${offset}`);
+      if (!Array.isArray(batch)) throw new Error('Unexpected records response');
+      list.push(...batch); if (batch.length < 100) break;
     }
-    return all;
+    return list;
   }
-  function setLive(live) {
-    document.body.classList.toggle('live-mode', live);
-    document.body.classList.toggle('demo-mode', api.demo);
-    $('#demo-mode-indicator').hidden = !api.demo;
-    $('#demo-banner').classList.toggle('hidden', live);
-    $('#connect-label').textContent = api.demo ? 'Demo Admin' : live ? `${api.role || 'API'} connected` : 'Connect API';
-    $('#sidebar-account-name').textContent = api.demo ? 'Demo Admin' : live ? (api.subject || api.role || 'API account') : 'Signed out';
-    $('#sidebar-account-role').textContent = api.demo ? 'Showcase workspace' : live ? `${api.role || 'Connected'} account` : 'Connect to API';
-    $('#sidebar-avatar').textContent = api.demo ? 'DA' : live ? initials(api.subject || api.role) : 'SR';
-    $('#settings-connection-state').textContent = api.demo ? 'Demo API connected · in-memory data' : live ? `Connected as ${api.role}` : 'Not connected';
-    $('.connect-button').classList.toggle('connected', live);
-    $$('.live-pill').forEach(pill => {
-      const label = [...pill.childNodes].find(node => node.nodeType === Node.TEXT_NODE);
-      if (label) label.textContent = api.demo ? ' DEMO' : live ? ' LIVE DATA' : ' CONNECT API';
-      pill.classList.toggle('offline', !live);
-    });
-    $('#metric-total-bookings').dataset.live = live ? '1' : '';
+  function normalBooking(b) {
+    const start = b.appointmentStartAt || b.appointmentStart || b.startsAt || '';
+    return { ...b, id: b.id || b.bookingId, customerName: b.customerName || 'Customer', category: b.category || b.serviceCategory, skill: b.requiredSkill || b.skill, date: b.appointmentDate || (start ? String(start).slice(0, 10) : ''), time: b.appointmentStart || (start ? String(start).slice(11, 16) : ''), duration: b.serviceDurationMinutes || b.durationMinutes || 60, partnerName: b.partnerName || b.assignedPartnerName || '', partnerId: b.assignedPartnerId || '', version: b.version ?? 0 };
   }
-  function normalizeBooking(b, index = 0) {
-    const start = b.appointmentStartAt || b.appointmentStart || b.startsAt || b.appointmentStartAt;
-    const partner = b.partnerName || b.assignedPartnerName || (b.assignedPartnerId ? partners.find(p => p.id === b.assignedPartnerId)?.name : '') || 'Unassigned';
-    const date = b.appointmentDate || (start ? isoDate(new Date(start)) : isoDate(today));
-    const time = b.appointmentStart || (start ? new Date(start).toTimeString().slice(0, 5) : '10:00');
-    return { id: b.id || b.bookingId || `live-${index}`, customerName: b.customerName || 'Customer', email: b.customerEmail || '', category: b.category || b.serviceCategory || 'NURSING', skill: b.requiredSkill || b.skill || 'Home care', date, time, duration: b.durationMinutes || b.serviceDurationMinutes || 60, partnerName: partner, partnerId: b.assignedPartnerId || '', status: String(b.status || 'NEW'), version: b.version ?? 0, address: b.address || 'Address on booking', createdAt: b.createdAt, updatedAt: b.updatedAt, avatar: initials(b.customerName), color: 'mint' };
-  }
-  function normalizePartner(p) { return { ...p, name: p.name || 'Care partner', registrationStatus: p.registrationStatus || 'PENDING', skills: p.skills || [], avatar: initials(p.name), tint: 'mint', upcoming: p.upcomingBookings ?? null, completed: p.completedBookings ?? null }; }
-  function normalizeJourney(j) { return { ...j, customerName: j.customerName || 'Customer visit', service: `${statusLabel(j.status)} · ${j.distanceKm == null ? 'Location updating' : `${Number(j.distanceKm).toFixed(1)} km away`}` }; }
-  async function connectLive() {
-    if (api.demo) return connectDemo(false);
-    if (!api.role) api.role = jwtRole(api.token);
-    setLive(true); bookings = []; partners = []; journeys = []; routes = [];
-    let results;
-    if (['ADMIN','DISPATCHER','OPERATIONS_MANAGER'].includes(api.role)) {
-      results = await Promise.allSettled([
-        fetchAllBookings('/v1/admin/bookings'), request('/v1/admin/partners?status=APPROVED'),
-        request('/v1/admin/partners?status=PENDING'), request('/v1/admin/tracking/partners'),
-        request('/v1/admin/service-executions')
-      ]);
-      const [adminBookings, approved, pending, liveJourneys, executions] = results;
-      if (approved.status === 'fulfilled' && Array.isArray(approved.value)) partners = approved.value.map(normalizePartner);
-      if (pending.status === 'fulfilled' && Array.isArray(pending.value)) partners = [...partners, ...pending.value.map(normalizePartner)];
-      if (adminBookings.status === 'fulfilled' && Array.isArray(adminBookings.value)) bookings = adminBookings.value.map(normalizeBooking);
-      if (liveJourneys.status === 'fulfilled' && Array.isArray(liveJourneys.value)) journeys = liveJourneys.value.map(j => { const booking = bookings.find(b => b.id === j.bookingId); return normalizeJourney({ ...j, customerName: booking?.customerName, service: booking ? `${categoryLabel(booking.category)} - ${booking.address}` : statusLabel(j.status) }); });
-      if (executions.status === 'fulfilled' && Array.isArray(executions.value)) {
-        for (const execution of executions.value) {
-          const booking = bookings.find(b => b.id === execution.bookingId);
-          if (booking) { booking.partnerName = execution.partnerName || booking.partnerName; booking.status = execution.bookingStatus || booking.status; }
-        }
-      }
-      if (approved.status === 'fulfilled') await loadLiveRoutes();
-    } else if (api.role === 'SERVICE_PARTNER') {
-      results = await Promise.allSettled([request('/v1/partners/me'), fetchAllBookings('/v1/partners/me/bookings'), request('/v1/partners/me/workload')]);
-      const [profile, assigned, workload] = results;
-      if (profile.status === 'fulfilled') partners = [normalizePartner({ ...profile.value, ...(workload.status === 'fulfilled' ? workload.value : {}) })];
-      if (assigned.status === 'fulfilled' && Array.isArray(assigned.value)) bookings = assigned.value.map(normalizeBooking);
-      const active = bookings.filter(b => ['CONFIRMED','PARTNER_ON_THE_WAY','PARTNER_NEARBY','PARTNER_ARRIVED','IN_PROGRESS'].includes(b.status));
-      journeys = active.map(b => ({ bookingId: b.id, partnerId: partners[0]?.id, partnerName: partners[0]?.name || 'You', customerName: b.customerName, service: `${categoryLabel(b.category)} · ${b.address}`, status: b.status, distanceKm: null, eta: null }));
-      if (partners[0]?.id) {
-        const routeResult = await Promise.allSettled([request(`/v1/partners/${encodeURIComponent(partners[0].id)}/routes/${isoDate(routeDay)}`)]);
-        if (routeResult[0].status === 'fulfilled') routes = [routeResult[0].value].filter(Boolean).map(route => ({ partner: partners[0].name, initials: partners[0].avatar, skills: partners[0].skills.map(s => categoryLabel(s.category)).join(' · '), km: route.distanceKm || 0, visits: (route.stops || []).map(s => { const booking = bookings.find(b => b.id === s.bookingId); return { ...s, customerName: booking?.customerName || s.bookingId, category: booking?.category, skill: booking?.skill, duration: booking?.duration, time: s.plannedArrival ? timeFrom(s.plannedArrival) : '—' }; }), tint: 'mint' }));
-      }
+  async function loadWorkspace() {
+    if (api.demo) {
+      const data = await demoRequest('/workspace');
+      bookings = (data.bookings || []).map(normalBooking); partners = data.partners || []; journeys = data.journeys || []; services = data.services || []; activity = data.activity || []; metrics = data.metrics || {};
+      return;
+    }
+    const ops = isAdmin() || isOps();
+    const results = await Promise.allSettled(ops ? [fetchAll('/v1/admin/bookings'), request('/v1/admin/partners?status=APPROVED'), request('/v1/admin/partners?status=PENDING'), request('/v1/admin/tracking/partners'), request('/v1/admin/service-executions'), request('/v1/admin/services')] : [fetchAll('/v1/partners/me/bookings'), request('/v1/partners/me'), request('/v1/partners/me/workload')]);
+    const value = i => results[i]?.status === 'fulfilled' ? results[i].value : null;
+    if (ops) {
+      bookings = (value(0) || []).map(normalBooking); partners = [...(value(1) || []), ...(value(2) || [])]; journeys = value(3) || [];
+      const executions = value(4) || [];
+      executions.forEach(e => { const b = bookings.find(item => item.id === e.bookingId); if (b) { b.partnerName = e.partnerName || b.partnerName; b.status = e.bookingStatus || b.status; } });
+      services = value(5) || [];
     } else {
-      results = await Promise.allSettled([request('/v1/customers/me'), fetchAllBookings('/v1/bookings')]);
-      const [profile, ownBookings] = results;
-      if (profile.status === 'fulfilled') api.subject = profile.value.subject || api.subject;
-      if (ownBookings.status === 'fulfilled' && Array.isArray(ownBookings.value)) bookings = ownBookings.value.map(normalizeBooking);
-      const completionChecks = await Promise.allSettled(bookings.filter(b => b.status === 'IN_PROGRESS').map(b => request(`/v1/bookings/${encodeURIComponent(b.id)}/service-execution`)));
-      completionChecks.forEach((result, i) => { if (result.status === 'fulfilled') { const execution = result.value?.execution; const booking = bookings.filter(b => b.status === 'IN_PROGRESS')[i]; if (booking) booking.completionPending = Boolean(execution?.completionSubmittedAt && !execution?.customerConfirmedAt); } });
-      const active = bookings.filter(b => !['COMPLETED','CANCELLED','REJECTED','NEW','PENDING'].includes(b.status));
-      const tracking = await Promise.allSettled(active.map(b => request(`/v1/bookings/${encodeURIComponent(b.id)}/tracking`)));
-      journeys = tracking.flatMap((r, i) => r.status === 'fulfilled' ? [normalizeJourney({ ...r.value, customerName: active[i].customerName, service: `${categoryLabel(active[i].category)} · ${active[i].address}` })] : []);
+      bookings = (value(0) || []).map(normalBooking); partners = value(1) ? [{ ...value(1), ...(value(2) || {}) }] : [];
+      journeys = bookings.filter(b => ['CONFIRMED', 'PARTNER_ON_THE_WAY', 'PARTNER_NEARBY', 'PARTNER_ARRIVED', 'IN_PROGRESS'].includes(b.status)).map(b => ({ bookingId: b.id, partnerName: 'You', customerName: b.customerName, status: b.status }));
     }
-    const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean);
-    const validTokenResponse = results.some(r => r.status === 'fulfilled' || r.reason?.status === 404);
-    if (!validTokenResponse) { setLive(false); throw new Error(errors[0] || 'Could not load live API data. Check your account role.'); }
-    renderAll();
-    if (errors.length) toast(`Connected as ${api.role}; some role-restricted panels are unavailable.`);
-    else toast(`Connected to live SathiRoute data as ${api.role}.`);
+    if (results.every(x => x.status === 'rejected')) throw results[0].reason;
+    if (!ops) services = [];
   }
-  async function connectDemo(announce = true) {
-    const data = await demoRequest('/workspace');
-    api.demo = true; api.token = ''; api.role = 'ADMIN'; api.subject = 'Demo Admin';
-    localStorage.removeItem('sathiroute.token'); localStorage.setItem('sathiroute.role', 'ADMIN'); localStorage.setItem('sathiroute.mode', 'demo');
-    bookings = (data.bookings || []).map(normalizeBooking);
-    partners = (data.partners || []).map(normalizePartner);
-    journeys = (data.journeys || []).map(normalizeJourney);
-    routes = data.routes || []; shipments = data.shipments || []; services = data.services || [];
-    demoActivity = data.activity || []; demoMetrics = data.metrics || null;
-    setLive(true); renderAll();
-    if (announce) { closeModal('connect-modal'); toast('Demo workspace loaded. All changes are temporary showcase data.'); }
+  function saveSession() {
+    for (const k of ['token', 'apiBase', 'role', 'subject', 'portal', 'mode']) localStorage.removeItem(`sathiroute.${k}`);
+    if (!api.remember) return;
+    if (api.token) localStorage.setItem('sathiroute.token', api.token);
+    if (api.base) localStorage.setItem('sathiroute.apiBase', api.base);
+    if (api.role) localStorage.setItem('sathiroute.role', api.role);
+    if (api.subject) localStorage.setItem('sathiroute.subject', api.subject);
+    if (api.portal) localStorage.setItem('sathiroute.portal', api.portal);
+    if (api.demo) localStorage.setItem('sathiroute.mode', 'demo');
   }
-  async function loadLiveRoutes() {
-    const date = isoDate(routeDay);
-    const settled = await Promise.allSettled(partners.filter(p => p.registrationStatus === 'APPROVED').slice(0, 20).map(p => request(`/v1/partners/${encodeURIComponent(p.id)}/routes/${date}`).then(route => ({ partner: p, route }))));
-    routes = settled.filter(x => x.status === 'fulfilled' && x.value.route).map((x, index) => {
-      const { partner, route } = x.value;
-      const stops = route.stops || [];
-      return { partner: partner.name, initials: initials(partner.name), skills: (partner.skills || []).map(s => categoryLabel(s.category)).join(' · ') || partner.code, km: route.distanceKm ?? route.km ?? 0, visits: stops.map(s => { const booking = bookings.find(b => b.id === s.bookingId); return { id: s.bookingId, customerName: booking?.customerName || s.bookingId, category: booking?.category, skill: booking?.skill, time: s.plannedArrival ? timeFrom(s.plannedArrival) : '—', duration: booking?.duration }; }), tint: ['mint', 'sand', 'lilac'][index % 3] };
+  function openLogin(portal = '') {
+    api.portal = portal;
+    root.innerHTML = `<main class="auth-shell"><header class="auth-brand">${brand}<span class="auth-caption">Care · Connect · Serve</span></header><section class="auth-content"><div class="auth-intro"><span class="eyebrow">CARE FROM CENTRE TO HOME</span><h1>Welcome to SathiRoute<br><em>Healthcare Operations</em></h1><p>One connected workspace for thoughtful, reliable care at home.</p></div>${portal ? loginForm(portal) : portalCards()}<p class="auth-foot">Secure operations for Nursing, Ayurvedic Therapy and Counselling.</p></section><div class="auth-art"><div class="art-orbit orbit-a"></div><div class="art-orbit orbit-b"></div><div class="art-cross">+</div><div class="art-card"><span class="art-heart">♥</span><strong>Care that moves<br>with people.</strong><small>PERSON-CENTRED HOME CARE</small></div><span class="art-label">SATHI · COMPANION</span></div></main>`;
+    bindLogin();
+  }
+  function portalCards() {
+    return `<div class="portal-cards"><button class="portal-card admin-card" data-portal="admin"><span class="portal-icon">▦</span><span class="portal-copy"><strong>Admin Login</strong><small>Complete business operations access</small><i>Users, service monitoring and configuration</i></span><span class="portal-arrow">→</span></button><button class="portal-card employee-card" data-portal="employee"><span class="portal-icon">♧</span><span class="portal-copy"><strong>Employee Login</strong><small>Permission-based operational workspace</small><i>Daily tasks, bookings and service coordination</i></span><span class="portal-arrow">→</span></button><button class="demo-launch" data-demo="admin">Explore admin demo <span>↗</span></button><button class="demo-launch demo-secondary" data-demo="employee">Explore employee demo <span>↗</span></button></div>`;
+  }
+  function loginForm(portal) {
+    const label = portal === 'admin' ? 'Admin' : 'Employee';
+    return `<form class="login-card" id="login-form"><button class="back-link" type="button" data-back>← Choose a portal</button><span class="login-badge">${portal === 'admin' ? '▦' : '♧'} ${label.toUpperCase()} PORTAL</span><h2>Sign in to your workspace</h2><p>Use your organization identity provider account.</p><label>API base URL <span>(optional)</span><input name="apiBase" type="url" placeholder="Same origin as this app" value="${esc(api.base)}"></label><label>Bearer access token<input name="token" type="password" placeholder="Paste your OIDC access token" autocomplete="current-password" required></label><div class="login-options"><label class="remember"><input type="checkbox" name="remember" checked> Remember this device</label><a href="#" data-help>Need access?</a></div><p class="form-error" id="login-error"></p><button class="button-primary login-submit" type="submit">Continue as ${label}<span>→</span></button><div class="auth-provider-note"><span class="secure-dot"></span>Authentication is verified by your configured identity provider.</div></form>`;
+  }
+  function bindLogin() {
+    document.querySelectorAll('[data-portal]').forEach(button => button.addEventListener('click', () => openLogin(button.dataset.portal)));
+    document.querySelectorAll('[data-demo]').forEach(button => button.addEventListener('click', () => enterDemo(button.dataset.demo)));
+    $('[data-back]')?.addEventListener('click', () => openLogin(''));
+    $('[data-help]')?.addEventListener('click', e => { e.preventDefault(); toast('Ask your SathiRoute administrator for an account and identity-provider access.'); });
+    $('#login-form')?.addEventListener('submit', async e => {
+      e.preventDefault(); const form = new FormData(e.currentTarget); const token = String(form.get('token') || '').trim().replace(/^Bearer\s+/i, '');
+      const role = jwtRole(token), portal = api.portal;
+      const allowed = portal === 'admin' ? ['ADMIN', 'DISPATCHER'].includes(role) : role === 'OPERATIONS_MANAGER';
+      if (!allowed) { $('#login-error').textContent = portal === 'admin' ? 'This token does not contain an Admin or Dispatcher role.' : 'Employee workspace currently requires the backend OPERATIONS_MANAGER role.'; return; }
+      api.token = token; api.base = String(form.get('apiBase') || '').trim().replace(/\/$/, ''); api.role = role; api.subject = 'Workspace user'; api.demo = false;
+      api.remember = Boolean(form.get('remember'));
+      try { await loadWorkspace(); saveSession(); renderApp(); toast(`Connected as ${role.replace('_', ' ')}.`); }
+      catch (error) { api.token = ''; $('#login-error').textContent = `${error.message}. Check your token, API URL and account permissions.`; }
     });
   }
-
-  function renderAll() {
-    const canCreateBooking = api.demo || api.role === 'CUSTOMER';
-    $$('[data-action="new-booking"]').forEach(button => { button.hidden = !canCreateBooking; });
-    $$('[data-action="add-partner"], [data-action="create-shipment"]').forEach(button => { button.hidden = !api.demo; });
-    renderVisits(); renderBookings(); renderPartners(); renderRoutes(); renderJourneys(); renderActivity();
-    renderShipments(); renderServices(); renderOperations(); renderReports(); renderOverviewPreviews(); updateMetrics();
+  async function enterDemo(portal) {
+    api.token = ''; api.base = ''; api.demo = true; api.portal = portal; api.remember = true; api.role = portal === 'admin' ? 'ADMIN' : 'OPERATIONS_MANAGER'; api.subject = portal === 'admin' ? 'Demo Administrator' : 'Demo Operations Manager';
+    try { await loadWorkspace(); saveSession(); renderApp(); toast('Demo workspace loaded. Changes are temporary showcase data.'); }
+    catch (error) { api.demo = false; openLogin(''); toast(`Demo API unavailable: ${error.message}. Start the local showcase stack.`); }
   }
-  function renderVisits() {
-    const next = bookings.filter(b => b.date === isoDate(today) && !['COMPLETED', 'CANCELLED', 'REJECTED'].includes(b.status)).sort((a, b) => a.time.localeCompare(b.time)).slice(0, 4);
-    $('#visit-list').innerHTML = next.length ? next.map(b => `<div class="visit-item"><div class="visit-time">${fmtTime(b.time)}<small>${b.duration} min</small></div><i class="visit-rail"></i><div class="visit-info"><strong>${escapeHtml(b.customerName)}</strong><span>${escapeHtml(categoryLabel(b.category))} · ${escapeHtml(b.partnerName)}</span></div><div class="visit-avatar ${categoryClass(b.category) === 'ayurvedic' ? 'therapist' : categoryClass(b.category) === 'counselling' ? 'counsel' : ''}">${escapeHtml(initials(b.partnerName))}</div></div>`).join('') : `<div class="empty-state"><strong>No upcoming visits</strong><p>New appointments will appear here.</p></div>`;
-  }
-  function renderBookings() {
-    const query = ($('#booking-search')?.value || '').trim().toLowerCase();
-    let filtered = bookings.filter(b => {
-      const s = statusLabel(b.status);
-      const matchesFilter = bookingFilter === 'all' || (bookingFilter === 'Assigned' ? ['ASSIGNED','CONFIRMED','PARTNER_ON_THE_WAY','PARTNER_NEARBY','PARTNER_ARRIVED','IN_PROGRESS'].includes(b.status) : bookingFilter === 'Pending' ? ['NEW','PENDING'].includes(b.status) : b.status === 'COMPLETED');
-      return matchesFilter && `${b.customerName} ${b.partnerName} ${b.skill} ${categoryLabel(b.category)} ${b.id}`.toLowerCase().includes(query) && (s || true);
-    });
-    $('#bookings-body').innerHTML = filtered.map(b => `<tr><td><div class="customer-cell"><span class="avatar avatar-${escapeHtml(b.color || 'mint')}">${escapeHtml(b.avatar || initials(b.customerName))}</span><span>${escapeHtml(b.customerName)}<small>${escapeHtml(b.id)}</small></span></div></td><td><div class="service-cell"><i class="service-swatch ${categoryClass(b.category)}"></i>${escapeHtml(categoryLabel(b.category))}<small style="display:block;color:#a0aaa3;margin-left:0">${escapeHtml(b.skill || '')}</small></div></td><td>${escapeHtml(fmtTime(b.time))}<small style="display:block;color:#a0aaa3;margin-top:3px">${escapeHtml(prettyDate(dateFromIso(b.date), { month: 'short', day: 'numeric' }))} · ${b.duration} min</small></td><td>${escapeHtml(b.partnerName || 'Unassigned')}</td><td>${statusPill(b.status)}</td><td>${bookingAction(b)}</td></tr>`).join('');
-    $('#bookings-empty').classList.toggle('hidden', filtered.length > 0);
-    $('#booking-count').textContent = `Showing ${filtered.length} loaded ${filtered.length === 1 ? 'visit' : 'visits'}`;
-    $('#booking-nav-count').textContent = String(bookings.filter(b => ['NEW','PENDING'].includes(b.status)).length || '');
-  }
-  function renderPartners() {
-    const query = ($('#partner-search')?.value || '').toLowerCase().trim();
-    const filtered = partners.filter(p => (partnerFilter === 'all' || (partnerFilter === 'available' ? p.available && p.active : p.registrationStatus === 'PENDING')) && `${p.name} ${p.code} ${(p.skills || []).map(s => s.code).join(' ')}`.toLowerCase().includes(query));
-    const approved = partners.filter(p => p.registrationStatus === 'APPROVED');
-    $('#partner-summary').innerHTML = `<div class="summary-tile"><span>Verified care partners</span><strong>${approved.length}</strong></div><div class="summary-tile"><span>Available right now</span><strong>${approved.filter(p => p.available && p.active).length}</strong></div><div class="summary-tile"><span>Awaiting verification</span><strong>${partners.filter(p => p.registrationStatus === 'PENDING').length}</strong></div>`;
-    $('#partner-grid').innerHTML = filtered.length ? filtered.map(p => `<article class="partner-card"><div class="partner-card-top"><span class="avatar avatar-${escapeHtml(p.tint || 'mint')}">${escapeHtml(p.avatar || initials(p.name))}</span><div><h3>${escapeHtml(p.name)}</h3><span class="partner-meta">${escapeHtml(p.code || p.id || 'Care partner')}</span></div><span class="partner-state">${p.registrationStatus === 'PENDING' ? '<i class="partner-review">Needs review</i>' : `<i class="status ${p.available && p.active ? 'status-completed' : 'status-pending'}">${p.available && p.active ? 'Available' : p.active ? 'On a visit' : 'Inactive'}</i>`}</span></div><div class="skill-tags">${(p.skills || []).map(s => `<span class="skill-tag">${escapeHtml(categoryLabel(s.category))}${s.code ? ` · ${escapeHtml(s.code)}` : ''}${s.verified ? ' ✓' : ''}</span>`).join('') || '<span class="skill-tag">Skills not listed</span>'}</div><div class="partner-card-bottom"><span>Completed <strong>${p.completed ?? 'N/A'} visits</strong></span><span>Upcoming <strong>${p.upcoming ?? 'N/A'}</strong></span></div>${['ADMIN','DISPATCHER'].includes(api.role) && p.registrationStatus === 'PENDING' ? `<button class="inline-action-button partner-action" data-partner-action="verify" data-id="${escapeHtml(p.id)}">Verify partner</button>` : ['ADMIN','DISPATCHER'].includes(api.role) && p.registrationStatus === 'APPROVED' && !p.active ? `<button class="inline-action-button partner-action" data-partner-action="activate" data-id="${escapeHtml(p.id)}">Activate partner</button>` : ''}</article>`).join('') : `<div class="empty-state"><strong>No care partners found</strong><p>${api.token ? 'No partner records are available to this account yet.' : 'Connect an admin token to load your live partner roster.'}</p></div>`;
-  }
-  function renderRoutes() {
-    $('#route-date').textContent = prettyDate(routeDay, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-    const visibleRoutes = api.demo && isoDate(routeDay) !== isoDate(today) ? [] : routes;
-    const visits = visibleRoutes.reduce((sum, r) => sum + r.visits.length, 0);
-    $('#route-overview').innerHTML = `<div class="route-stat"><span>Partners on route</span><strong>${visibleRoutes.length.toString().padStart(2, '0')}</strong></div><div class="route-stat"><span>Visits planned</span><strong>${visits.toString().padStart(2, '0')}</strong></div><div class="route-stat"><span>Estimated distance</span><strong>${visibleRoutes.reduce((sum, r) => sum + Number(r.km || 0), 0).toFixed(1)} <small style="font:500 10px 'DM Sans';color:#9aa59d">km</small></strong></div>`;
-    $('#route-list').innerHTML = visibleRoutes.length ? visibleRoutes.map(r => `<article class="route-card"><div class="route-card-header"><span class="avatar avatar-${escapeHtml(r.tint)}">${escapeHtml(r.initials)}</span><div><h3>${escapeHtml(r.partner)}</h3><p>${escapeHtml(r.skills)}</p></div><div class="route-meta"><span><strong>${r.visits.length}</strong> visits</span><span><strong>${Number(r.km || 0).toFixed(1)} km</strong> estimated</span></div></div><div class="route-stops">${r.visits.length ? r.visits.map((v, i) => `<div class="route-stop"><span class="stop-number">${i + 1}</span><span class="stop-time">${escapeHtml(v.time || fmtTime(v.appointmentStart))}</span><span class="stop-copy">${escapeHtml(v.customerName || 'Customer visit')}<small>${escapeHtml(categoryLabel(v.category))}${v.skill ? ` · ${escapeHtml(v.skill)}` : ''}${v.duration ? ` · ${v.duration} min` : ''}</small></span></div>`).join('') : '<div class="route-stop"><span class="stop-copy">No visits scheduled for this date.</span></div>'}</div></article>`).join('') : `<div class="panel empty-state"><span>→</span><strong>No route plans for this date</strong><p>${api.demo ? 'No demo route is planned for this date.' : 'Connect an admin token to load partner routes.'}</p></div>`;
-  }
-  function renderJourneys() {
-    $('#journey-list').innerHTML = journeys.length ? journeys.map((j, i) => { const person = partners.find(p => p.id === j.partnerId); const eta = j.eta ? `${Math.max(1, Math.round((new Date(j.eta) - Date.now()) / 60000))} min` : (j.status === 'PARTNER_ARRIVED' ? 'Arrived' : 'Updating'); return `<article class="journey-card"><div class="journey-person"><span class="avatar avatar-${escapeHtml(person?.tint || ['sand','lilac','mint'][i % 3])}">${escapeHtml(person?.avatar || initials(j.partnerName))}</span><div><strong>${escapeHtml(j.partnerName)}</strong><small>${escapeHtml(j.service || statusLabel(j.status))}</small></div><span class="eta-chip">${escapeHtml(eta)}</span></div><div class="journey-detail"><span>${escapeHtml(j.customerName || `Booking ${j.bookingId?.slice(0, 8) || ''}`)}</span><strong>${j.distanceKm == null ? 'Location updating' : j.distanceKm < .1 ? 'At the door' : `${Number(j.distanceKm).toFixed(1)} km away`}</strong></div><div class="journey-line"></div></article>`; }).join('') : `<div class="empty-state"><span>◉</span><strong>No active journeys</strong><p>Partners heading to a visit will show here.</p></div>`;
-    $('#tracking-demo-visual').hidden = !(api.demo && journeys.length);
-    $('#tracking-no-data').hidden = api.demo && journeys.length > 0;
-    if (api.demo && journeys.length) $('#tracking-demo-visual').innerHTML = `<div class="demo-map-road road-one"></div><div class="demo-map-road road-two"></div><span class="demo-map-pin pin-one">⌂</span><span class="demo-map-pin pin-two">▣</span><span class="demo-map-pin pin-three">●</span><div class="demo-map-label"><strong>${escapeHtml(journeys[0].partnerName || 'Demo partner')}</strong><small>${escapeHtml(journeys[0].distanceKm == null ? 'Simulated demo location' : `${Number(journeys[0].distanceKm).toFixed(1)} km from visit`)}</small></div><span class="demo-map-caption">DEMO MAP · SIMULATED LOCATIONS</span>`;
-    $('#operations-map-title').textContent = journeys.length ? `${journeys.length} active ${journeys.length === 1 ? 'journey' : 'journeys'}` : 'Live journey feed';
-    $('#operations-map-copy').textContent = journeys.length ? (api.demo ? 'Simulated showcase journey details. The demo route sketch is not a live GPS position.' : 'Current partner and visit details from the authenticated tracking feed.') : 'Authenticated partner locations appear here when the tracking API reports an active journey. No sample routes or map points are displayed.';
-    $('#operations-journey-list').innerHTML = journeys.slice(0, 2).map(j => `<div class="overview-journey"><strong>${escapeHtml(j.partnerName || 'Care partner')}</strong><span>${escapeHtml(j.customerName || `Booking ${j.bookingId?.slice(0, 8) || ''}`)}</span><small>${escapeHtml(statusLabel(j.status))} · ${j.distanceKm == null ? 'Location updating' : `${Number(j.distanceKm).toFixed(1)} km away`}</small></div>`).join('');
-    $('.map-orbit').hidden = journeys.length > 0;
-    $('#operations-track-button').textContent = journeys.length ? 'View all live journeys →' : 'Open live tracking →';
-    $('#last-updated').textContent = api.token ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Connect to load live locations';
-  }
-  function renderActivity() {
-    const entries = api.demo && demoActivity.length ? demoActivity.slice(0, 4).map((a, i) => ({ icon: ['✓','▣','♧','•'][i % 4], cls: ['', 'orange', 'purple'][i % 3], title: a.title, customer: a.subject, category: a.detail, when: a.at })) : bookings.slice(0, 3).map((b, i) => ({ icon: ['*','>','+'][i], cls: ['', 'orange', 'purple'][i], title: statusLabel(b.status), customer: b.customerName, category: categoryLabel(b.category), when: b.updatedAt || b.createdAt }));
-    $('#activity-list').innerHTML = entries.length ? entries.map(a => `<div class="activity-item"><span class="activity-icon ${a.cls}">${a.icon}</span><div class="activity-copy"><strong>${escapeHtml(a.title)}</strong> &middot; ${escapeHtml(a.customer)} &middot; ${escapeHtml(a.category)}<small>${a.when ? escapeHtml(new Date(a.when).toLocaleString('en-IN')) : 'Booking record'}</small></div></div>`).join('') : '<div class="empty-state"><strong>No activity yet</strong><p>Bookings and status changes will appear here after data is added.</p></div>';
-  }
-  function renderShipments() {
-    $('#shipment-heading-copy').textContent = api.demo ? 'Create showcase shipments and advance their delivery status.' : 'The connected API does not currently provide a shipment list for this dashboard.';
-    const query = ($('#shipment-search')?.value || '').trim().toLowerCase();
-    const filter = $('#shipment-filter')?.value || 'all';
-    const rows = shipments.filter(s => (filter === 'all' || s.status === filter) && `${s.reference} ${s.recipientName} ${s.routeName} ${s.address}`.toLowerCase().includes(query));
-    $('#shipment-body').innerHTML = rows.map(s => `<tr><td><strong>${escapeHtml(s.reference || s.id)}</strong><small style="display:block;color:#8290aa;margin-top:4px">${escapeHtml(s.id)}</small></td><td>${escapeHtml(s.recipientName || 'Recipient')}</td><td>${escapeHtml(s.address || s.routeName || '—')}</td><td>${escapeHtml(s.serviceDate || '—')}</td><td>${statusPill(s.status)}</td><td>${api.demo ? `<div class="shipment-action"><select class="demo-status-select" aria-label="New status for ${escapeHtml(s.reference)}">${["PLANNED","IN_TRANSIT","OUT_FOR_DELIVERY","DELIVERED","FAILED_ATTEMPT"].map(status => `<option value="${status}" ${s.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="inline-action-button" data-shipment-action="status" data-id="${escapeHtml(s.id)}">Save</button></div>` : 'Listing not provided by connected API'}</td></tr>`).join('');
-    $('#shipments-empty').classList.toggle('hidden', rows.length > 0);
-    $('#shipments-empty-copy').textContent = api.demo ? 'Create a demo shipment to see it here.' : 'The connected API does not provide a shipment list endpoint.';
-    $('#shipment-count').textContent = `${rows.length} ${api.demo ? 'demo ' : ''}${rows.length === 1 ? 'shipment' : 'shipments'}`;
-  }
-  function renderServices() {
-    $('#service-grid').innerHTML = services.length ? services.map(s => `<article class="panel service-card"><span class="service-symbol">✚</span><div><h3>${escapeHtml(s.name)}</h3><p>${escapeHtml(s.description || 'Home-care service')}</p></div><span class="status ${s.active ? 'status-completed' : 'status-pending'}">${s.active ? 'Available' : 'Paused'}</span><button class="button ${s.active ? 'button-outline' : 'button-primary'}" data-service-action="toggle" data-id="${escapeHtml(s.id)}" data-active="${!s.active}">${s.active ? 'Pause service' : 'Enable service'}</button></article>`).join('') : '<div class="panel empty-state"><strong>No service catalog returned</strong><p>Connect the demo workspace or an API that exposes services.</p></div>';
-  }
-  function renderOperations() {
-    $('#operations-hint').textContent = api.demo ? 'Review open demo bookings and partner applications; changes stay in demo memory.' : 'Review records returned by the connected API.';
-    const pendingBookings = bookings.filter(b => ['NEW','PENDING','REJECTED'].includes(b.status));
-    const pendingPartners = partners.filter(p => p.registrationStatus === 'PENDING');
-    const activeShipments = shipments.filter(s => ['PLANNED','IN_TRANSIT','OUT_FOR_DELIVERY'].includes(s.status));
-    $('#operations-summary').innerHTML = `<div class="summary-tile"><span>Bookings awaiting action</span><strong>${pendingBookings.length}</strong></div><div class="summary-tile"><span>Partner applications</span><strong>${pendingPartners.length}</strong></div><div class="summary-tile"><span>Open shipments</span><strong>${activeShipments.length}</strong></div>`;
-    const rows = [
-      ...pendingBookings.map(b => `<div class="queue-row"><div><strong>Booking ${escapeHtml(b.id)}</strong><small>${escapeHtml(b.customerName)} · ${escapeHtml(categoryLabel(b.category))} · ${escapeHtml(b.date)}</small></div><span>${statusPill(b.status)}</span><button class="inline-action-button" data-booking-action="allocate" data-id="${escapeHtml(b.id)}" data-version="${b.version}">Allocate</button></div>`),
-      ...pendingPartners.map(p => `<div class="queue-row"><div><strong>Partner application</strong><small>${escapeHtml(p.name)} · ${escapeHtml(p.code || p.id)}</small></div><span class="partner-review">Needs review</span><button class="inline-action-button" data-partner-action="verify" data-id="${escapeHtml(p.id)}">Approve</button></div>`)
+  function navGroups() {
+    if (api.portal === 'admin') return [
+      ['OVERVIEW', [['dashboard', '◫', 'Dashboard']]],
+      ['SERVICE MANAGEMENT', [['bookings', '▤', 'All bookings'], ['services', '✳', 'Service categories']]],
+      ['HEALTHCARE OPERATIONS', [['operations', '⌁', 'Service visits'], ['partners', '♧', 'Care partners']]],
+      ['INSIGHTS', [['reports', '▥', 'Reports']]],
     ];
-    $('#operations-queue').innerHTML = rows.length ? rows.join('') : '<div class="empty-state"><strong>All caught up</strong><p>There are no bookings or partner applications waiting for review.</p></div>';
+    return [
+      ['MY WORKSPACE', [['dashboard', '◫', 'My dashboard'], ['bookings', '▤', 'My bookings'], ['operations', '⌁', 'Service visits']]],
+      ['COORDINATION', [['partners', '♧', 'Care partners']]],
+      ['ACCOUNT', [['profile', '○', 'My profile']]],
+    ];
   }
-  function renderReports() {
-    $('#report-heading-copy').textContent = api.demo ? 'Summaries below are calculated from local showcase demo records.' : 'Summaries use records returned by the connected API; unsupported metrics stay unavailable.';
-    const period = $('#report-period').value;
-    const periodStart = new Date(today);
-    let periodEnd;
-    if (period === 'This week') {
-      periodStart.setDate(today.getDate() - ((today.getDay() + 6) % 7)); periodStart.setHours(0, 0, 0, 0);
-      periodEnd = new Date(periodStart); periodEnd.setDate(periodStart.getDate() + 7);
-    } else {
-      periodStart.setDate(1); periodStart.setHours(0, 0, 0, 0);
-      periodEnd = new Date(periodStart); periodEnd.setMonth(periodStart.getMonth() + 1);
+  function renderApp() {
+    if (!api.token && !api.demo) return openLogin('');
+    root.innerHTML = `<div class="app-shell ${api.portal === 'employee' ? 'employee-shell' : 'admin-shell'}"><aside class="sidebar" id="sidebar"><a class="brand" href="#dashboard">${brand}</a><div class="workspace-chip"><span class="workspace-led"></span>${api.demo ? 'SHOWCASE DATA' : 'CONNECTED WORKSPACE'}</div><nav class="side-nav">${navGroups().map(([group, links]) => `<div class="nav-group"><div class="nav-label">${group}</div>${links.map(([id, icon, label]) => `<button class="nav-item ${page === id ? 'selected' : ''}" data-page="${id}"><span class="nav-symbol">${icon}</span>${label}${id === 'bookings' && bookings.length ? `<i class="nav-count">${bookings.filter(b => ['NEW', 'PENDING', 'REJECTED'].includes(b.status)).length || ''}</i>` : ''}</button>`).join('')}</div>`).join('')}</nav><div class="sidebar-bottom"><div class="care-promo"><span class="promo-heart">♥</span><strong>Care from<br>Centre to Home</strong><small>THOUGHTFUL CARE. EVERY DAY.</small></div><div class="user-card"><span class="avatar">${initials(api.subject)}</span><span><strong>${esc(api.demo ? (api.portal === 'admin' ? 'Demo Admin' : 'Demo Employee') : api.subject)}</strong><small>${api.demo ? `${portalLabel()} · demo` : api.role.replaceAll('_', ' ')}</small></span><button class="logout" data-logout title="Sign out">↗</button></div></div></aside><main class="main-area"><header class="topbar"><button class="mobile-menu" data-menu aria-label="Open navigation">☰</button><div class="breadcrumb"><span>SathiRoute</span><b>/</b>${titles[page] || 'Dashboard'}</div><div class="topbar-right"><span class="mode-tag ${api.demo ? 'demo-tag' : 'live-tag'}"><i></i>${api.demo ? 'DEMO DATA' : 'LIVE API'}</span><span class="today-pill">${new Intl.DateTimeFormat('en-IN', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date())}</span><button class="icon-button" data-refresh title="Refresh workspace">↻</button><span class="top-avatar">${initials(api.subject)}</span></div></header><section class="page-content" id="page-content"></section></main></div><div class="modal-layer" id="modal-layer"></div>`;
+    drawPage(); bindApp();
+  }
+  const bookCount = () => bookings.length;
+  const pendingCount = () => bookings.filter(b => ['NEW', 'PENDING', 'REJECTED'].includes(b.status)).length;
+  const activePartners = () => partners.filter(p => p.active && p.registrationStatus === 'APPROVED').length;
+  const todayVisits = () => bookings.filter(b => b.date === dateToday() && !['CANCELLED', 'REJECTED'].includes(b.status)).length;
+  function drawPage() {
+    const target = $('#page-content');
+    if (page === 'dashboard') target.innerHTML = drawDashboard();
+    else if (page === 'bookings') target.innerHTML = drawBookings();
+    else if (page === 'partners') target.innerHTML = drawPartners();
+    else if (page === 'operations') target.innerHTML = drawOperations();
+    else if (page === 'services') target.innerHTML = drawServices();
+    else if (page === 'reports') target.innerHTML = drawReports();
+    else target.innerHTML = drawProfile();
+  }
+  function heading(kicker, title, copy, action = '') { return `<div class="page-heading"><div><div class="eyebrow"><i></i>${kicker}</div><h1>${title}</h1><p>${copy}</p></div>${action}</div>`; }
+  function metric(label, value, sub, icon, tint) { return `<article class="metric-card"><div class="metric-head"><span>${label}</span><i class="metric-icon ${tint}">${icon}</i></div><strong>${value}</strong><small>${sub}</small></article>`; }
+  function drawDashboard() {
+    const admin = api.portal === 'admin';
+    const first = api.demo ? (admin ? 'Administrator' : 'Operations Manager') : (api.subject.split('@')[0] || (admin ? 'Administrator' : 'Team member'));
+    const needs = bookings.filter(b => ['NEW', 'PENDING', 'REJECTED'].includes(b.status)).slice(0, 5);
+    const next = bookings.filter(b => !['COMPLETED', 'CANCELLED', 'REJECTED'].includes(b.status)).sort((a,b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)).slice(0, 5);
+    return `${heading(admin ? 'ORGANIZATION OVERVIEW' : 'YOUR OPERATIONS DESK', `Good ${new Date().getHours() < 12 ? 'morning' : 'afternoon'}, ${esc(first)} <span class="wave">✦</span>`, admin ? 'A clear view of care operations across your organization.' : 'Here is what needs your attention today.', admin && api.demo ? '<button class="button button-primary" data-new-booking>＋ New booking</button>' : '')}<div class="metric-grid">${metric('Total bookings', bookCount(), 'Records available to this account', '▤', 'blue')}${metric('Active partners', `${activePartners()}<span class="metric-denom"> / ${partners.length}</span>`, 'Approved and active', '♧', 'violet')}${metric('Service visits today', todayVisits(), `${journeys.length} active journeys`, '⌁', 'green')}${metric('Needs attention', pendingCount(), 'New or awaiting allocation', '◷', 'amber')}</div><div class="dashboard-grid"><article class="panel operations-panel"><div class="panel-title"><div><span class="panel-kicker">SERVICE OPERATIONS</span><h2>Visit activity</h2></div><button class="text-link" data-page="operations">View operations →</button></div><div class="service-overview"><div class="service-donut"><div><strong>${journeys.length}</strong><small>IN PROGRESS</small></div></div><div class="service-legend"><span><i class="dot nursing"></i>Nursing <b>${bookings.filter(b => b.category === 'NURSING').length}</b></span><span><i class="dot ayurveda"></i>Ayurvedic therapy <b>${bookings.filter(b => b.category === 'AYURVEDIC_THERAPY').length}</b></span><span><i class="dot counselling"></i>Counselling <b>${bookings.filter(b => b.category === 'COUNSELLING').length}</b></span></div></div><div class="ops-summary"><span><b>${pendingCount()}</b> bookings awaiting action</span><span><b>${partners.filter(p => p.registrationStatus === 'PENDING').length}</b> partner reviews</span></div></article><article class="panel attention-panel"><div class="panel-title"><div><span class="panel-kicker">ACTION QUEUE</span><h2>Needs attention</h2></div><span class="count-chip">${needs.length}</span></div>${needs.length ? needs.map(b => `<div class="queue-item"><span class="queue-mark">!</span><div><strong>${esc(b.customerName)}</strong><small>${esc(category(b.category))} · ${esc(dateLabel(b.date))}</small></div>${pill(b.status)}<button class="row-arrow" data-open-bookings aria-label="View booking">→</button></div>`).join('') : `<div class="empty-inline"><span>✓</span><strong>All caught up</strong><small>No bookings need attention.</small></div>`}</article></div><div class="panel upcoming-panel"><div class="panel-title"><div><span class="panel-kicker">CARE CALENDAR</span><h2>Upcoming service visits</h2></div><button class="text-link" data-page="bookings">All bookings →</button></div>${next.length ? `<div class="table-wrap"><table><thead><tr><th>Customer</th><th>Service</th><th>Appointment</th><th>Care partner</th><th>Status</th></tr></thead><tbody>${next.map(bookingRow).join('')}</tbody></table></div>` : empty('No upcoming visits', 'New service appointments will appear here.')}</div><div class="dashboard-foot"><span>Care · Connect · Serve</span><span>${api.demo ? 'Showcase information is temporary and resets with the demo service.' : 'Figures reflect data returned to your connected account.'}</span></div>`;
+  }
+  function pill(value) { const cls = ['COMPLETED', 'CONFIRMED', 'APPROVED', 'IN_PROGRESS'].includes(value) ? 'good' : ['REJECTED', 'CANCELLED'].includes(value) ? 'bad' : ['ASSIGNED', 'PARTNER_ARRIVED'].includes(value) ? 'blue' : 'pending'; return `<span class="status-pill ${cls}"><i></i>${esc(statusName(value))}</span>`; }
+  function bookingRow(b) { return `<tr><td><div class="person-cell"><span class="avatar small-avatar">${initials(b.customerName)}</span><span><strong>${esc(b.customerName)}</strong><small>${esc(String(b.id || '').slice(0, 12))}</small></span></div></td><td><strong>${esc(category(b.category))}</strong><small class="subline">${esc(b.skill || '')}</small></td><td><strong>${esc(dateLabel(b.date))}</strong><small class="subline">${esc(timeLabel(b.time))}</small></td><td>${b.partnerName ? `<button class="partner-link" data-partner-open="${esc(b.partnerId)}" data-partner-name="${esc(b.partnerName)}">${esc(b.partnerName)} ↗</button>` : '<span class="muted-copy">Unassigned</span>'}</td><td>${pill(b.status)}</td></tr>`; }
+  function drawBookings() {
+    const allRows = bookings.slice().sort((a,b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+    const rows = allRows.filter(b => categoryFilter === 'all' || b.category === categoryFilter);
+    const serviceSummary = Object.entries(cats).map(([id, name]) => {
+      const subset = allRows.filter(b => b.category === id), active = subset.filter(b => !['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length;
+      const assigned = new Set(subset.filter(b => b.partnerName).map(b => b.partnerId || b.partnerName)).size;
+      return `<button class="service-summary ${categoryFilter === id ? 'chosen' : ''}" data-category-filter="${id}"><span class="category-mark mark-${id.toLowerCase()}">${categoryIcon(id)}</span><span><strong>${esc(name)}</strong><small>${subset.length} bookings · ${assigned} partners</small></span><b>${active}<small>active</small></b></button>`;
+    }).join('');
+    return `${heading('SERVICE MANAGEMENT', 'Bookings <em>& visits.</em>', 'See partner coverage, service load and each visit in one place.', api.demo ? '<button class="button button-primary" data-new-booking>＋ New booking</button>' : '')}<div class="service-summary-grid"><button class="service-summary ${categoryFilter === 'all' ? 'chosen' : ''}" data-category-filter="all"><span class="category-mark">▤</span><span><strong>All services</strong><small>${allRows.length} bookings · ${new Set(allRows.filter(b => b.partnerName).map(b => b.partnerId || b.partnerName)).size} partners</small></span><b>${allRows.filter(b => !['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length}<small>active</small></b></button>${serviceSummary}</div><div class="toolbar"><div class="search-field"><span>⌕</span><input id="booking-search" placeholder="Search customer, service or booking ID"></div><div class="filter-tabs"><button class="filter-tab ${bookingFilter === 'all' ? 'active' : ''}" data-filter="all">All <b>${rows.length}</b></button><button class="filter-tab ${bookingFilter === 'open' ? 'active' : ''}" data-filter="open">Needs attention <b>${pendingCount()}</b></button><button class="filter-tab ${bookingFilter === 'active' ? 'active' : ''}" data-filter="active">In progress</button><button class="filter-tab ${bookingFilter === 'done' ? 'active' : ''}" data-filter="done">Completed</button></div><button class="button button-quiet" data-refresh>↻ Refresh</button></div><div class="panel data-panel"><div class="table-wrap"><table><thead><tr><th>Customer / ticket</th><th>Service</th><th>Appointment</th><th>Care partner</th><th>Status</th><th>Actions</th></tr></thead><tbody id="booking-rows">${rows.map(b => `<tr data-search="${esc(`${b.customerName} ${category(b.category)} ${b.id} ${b.partnerName}`.toLowerCase())}" data-category="${esc(b.category)}" data-status="${esc(b.status)}">${bookingRow(b).replace('<tr>', '').replace('</tr>', '')}<td><button class="small-action" data-ticket="${esc(b.id)}">View ticket</button> ${bookingAction(b)}</td></tr>`).join('')}</tbody></table></div>${rows.length ? '' : empty('No bookings in this category', 'Bookings will appear here when they are created.')}</div><div class="booking-live-foot"><span class="live-pulse"></span><span>${api.demo ? 'Showcase data · refresh to see changes from other demo actions.' : 'Live booking and partner activity · auto-refreshes while this page is open.'}</span><button class="text-link" data-refresh>Refresh now</button></div>`;
+  }
+  function categoryIcon(id) { return ({ NURSING: '✚', AYURVEDIC_THERAPY: '◉', COUNSELLING: '♡' })[id] || '✳'; }
+  function bookingAction(b) {
+    if (api.demo && ['NEW', 'PENDING', 'REJECTED'].includes(b.status)) return `<button class="small-action" data-action="allocate" data-id="${esc(b.id)}">Start allocation</button>`;
+    if (api.token && isAdmin() && ['NEW', 'REJECTED'].includes(b.status)) return `<button class="small-action" data-action="allocate" data-id="${esc(b.id)}" data-version="${b.version}">Start partner search</button>`;
+    if (api.token && isAdmin() && b.status === 'PENDING') return `<button class="small-action" data-action="search-partners" data-id="${esc(b.id)}">Search nearest partners</button>`;
+    if (api.demo && !['COMPLETED', 'CANCELLED'].includes(b.status)) return `<select class="demo-status" aria-label="Change demo status" data-status-select="${esc(b.id)}">${Object.entries(statuses).map(([k,v]) => `<option value="${k}" ${b.status === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select><button class="small-action" data-action="save-status" data-id="${esc(b.id)}">Save</button>`;
+    return '';
+  }
+  function drawPartners() {
+    const pending = partners.filter(p => p.registrationStatus === 'PENDING');
+    return `${heading('PARTNER MANAGEMENT', 'Care <em>partners.</em>', 'Review qualifications, availability and partner status.', api.token && isAdmin() ? '<button class="button button-primary" data-add-partner>＋ Add partner manually</button>' : '')}<div class="partner-stats">${metric('All partners', partners.length, 'Visible to this workspace', '♧', 'blue')}${metric('Available', activePartners(), 'Approved and active', '✓', 'green')}${metric('Needs review', pending.length, 'Pending verification', '◷', 'amber')}</div><div class="toolbar"><div class="search-field"><span>⌕</span><input id="partner-search" placeholder="Find a care partner"></div><div class="filter-tabs"><button class="filter-tab active" data-partner-filter="all">Everyone</button><button class="filter-tab" data-partner-filter="pending">Needs review</button><button class="filter-tab" data-partner-filter="available">Active</button></div></div><div class="partner-grid" id="partner-grid">${partners.map(partnerCard).join('')}</div>${partners.length ? '' : empty('No partner records returned', api.demo ? 'Try refreshing the showcase data.' : 'The backend only returns partners available to your account.')}`;
+  }
+  function partnerCard(p) {
+    const skills = (p.skills || []).map(s => `${category(s.category)}${s.code ? ` · ${s.code}` : ''}`).join(' / ') || 'Skills not listed';
+    const action = api.demo && p.registrationStatus === 'PENDING' ? `<button class="small-action" data-action="verify" data-id="${esc(p.id)}">Approve partner</button>` : api.token && isAdmin() && p.registrationStatus === 'PENDING' ? `<button class="small-action" data-action="verify" data-id="${esc(p.id)}">Approve partner</button>` : '';
+    return `<article class="panel partner-card" data-partner="${esc(`${p.name} ${skills}`.toLowerCase())}" data-review="${p.registrationStatus === 'PENDING'}" data-active="${Boolean(p.active)}"><div class="partner-card-head"><span class="avatar partner-avatar">${initials(p.name)}</span><div><h3>${esc(p.name || 'Care partner')}</h3><small>${esc(p.code || String(p.id || '').slice(0, 10))}</small></div>${pill(p.registrationStatus)}</div><div class="partner-skills"><span class="panel-kicker">QUALIFICATIONS</span><p>${esc(skills)}</p></div><div class="partner-card-meta"><span>Completed visits <b>${esc(p.completedBookings ?? '—')}</b></span><span>Upcoming <b>${esc(p.upcomingBookings ?? '—')}</b></span></div>${p.available ? '<span class="availability"><i></i>Available now</span>' : '<span class="availability off"><i></i>Currently unavailable</span>'}${action}</article>`;
+  }
+  function drawOperations() {
+    const open = bookings.filter(b => !['COMPLETED', 'CANCELLED', 'REJECTED'].includes(b.status));
+    const active = journeys.length ? journeys : open.filter(b => ['PARTNER_ON_THE_WAY', 'PARTNER_NEARBY', 'PARTNER_ARRIVED', 'IN_PROGRESS'].includes(b.status)).map(b => ({ bookingId: b.id, customerName: b.customerName, partnerName: b.partnerName, status: b.status }));
+    return `${heading('HEALTHCARE OPERATIONS', 'Service <em>visits.</em>', 'Track assignments and the progress of care delivered at home.')}<div class="metric-grid compact-metrics">${metric('Open visits', open.length, 'Not completed or cancelled', '⌁', 'blue')}${metric('Active journeys', active.length, 'Partner in progress or en route', '◎', 'green')}${metric('Unassigned', open.filter(b => !b.partnerName).length, 'Awaiting partner assignment', '◷', 'amber')}</div><div class="panel visit-panel"><div class="panel-title"><div><span class="panel-kicker">LIVE SERVICE PROGRESS</span><h2>Active service visits</h2></div><span class="mode-tag ${api.demo ? 'demo-tag' : 'live-tag'}"><i></i>${api.demo ? 'DEMO' : 'API DATA'}</span></div>${active.length ? `<div class="visit-grid">${active.map(j => { const b = bookings.find(x => x.id === j.bookingId); return `<article class="visit-card"><div class="visit-card-top"><span class="visit-icon">⌁</span>${pill(j.status)}</div><h3>${esc(j.customerName || b?.customerName || 'Customer visit')}</h3><p>${esc(b ? category(b.category) : 'Home care visit')} · ${esc(b?.address || 'Service address')}</p><div class="visit-partner"><span class="avatar small-avatar">${initials(j.partnerName || b?.partnerName)}</span><span><small>CARE PARTNER</small><strong>${esc(j.partnerName || b?.partnerName || 'Assignment pending')}</strong></span></div><div class="visit-card-foot"><span>${esc(dateLabel(b?.date))}</span><b>${esc(timeLabel(b?.time))}</b></div></article>`; }).join('')}</div>` : empty('No active service visits', 'Assigned visits will appear as partners accept and progress through the service.')}</div><div class="panel assignment-panel"><div class="panel-title"><div><span class="panel-kicker">SCHEDULING</span><h2>Upcoming appointments</h2></div></div><div class="table-wrap"><table><thead><tr><th>Customer</th><th>Service</th><th>Appointment</th><th>Assignment</th><th>Status</th></tr></thead><tbody>${open.slice(0, 8).map(bookingRow).join('')}</tbody></table></div>${open.length ? '' : empty('No upcoming appointments', 'New bookings will appear here.')}</div>`;
+  }
+  function drawServices() {
+    const list = services.length ? services : Object.entries(cats).map(([id, name]) => ({ id, name, active: true, description: 'Care delivered by a qualified healthcare partner at home.' }));
+    return `${heading('SERVICE MANAGEMENT', 'Service <em>categories.</em>', 'The care specialities supported by the SathiRoute platform.')}<div class="notice-card"><span>i</span><p><strong>Platform categories</strong> Booking types are provided by the backend. A managed service catalogue and pricing API are not available in this project yet.</p></div><div class="service-grid">${list.map((s,i) => `<article class="panel service-card"><span class="service-number">0${i+1}</span><span class="service-illustration tint-${i}">${['✚','◉','♡'][i]}</span><span class="panel-kicker">CARE AT HOME</span><h2>${esc(s.name || category(s.id))}</h2><p>${esc(s.description || 'Qualified care and professional support, delivered in the comfort of home.')}</p><span class="service-state"><i></i>${s.active === false ? 'Paused in demo data' : 'Supported service category'}</span></article>`).join('')}</div>`;
+  }
+  // Operational booking/category views override the basic list renderers above.
+  function bookingRow(b) { return `<tr><td><div class="person-cell"><span class="avatar small-avatar">${initials(b.customerName)}</span><span><strong>${esc(b.customerName)}</strong><small>${esc(String(b.id || '').slice(0,12))}</small></span></div></td><td><strong>${esc(category(b.category))}</strong><small class="subline">${esc(b.skill || '')}</small></td><td><strong>${esc(dateLabel(b.date))}</strong><small class="subline">${esc(timeLabel(b.time))}</small></td><td>${b.partnerName ? `<button class="partner-link" data-partner-open="${esc(b.partnerId || '')}" data-partner-name="${esc(b.partnerName)}">${esc(b.partnerName)} ↗</button>` : '<span class="muted-copy">Unassigned</span>'}</td><td>${pill(b.status)}</td></tr>`; }
+  function drawBookings() {
+    const all=bookings.slice().sort((a,b)=>`${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)), rows=all.filter(b=>categoryFilter==='all'||b.category===categoryFilter);
+    const categoryCards=Object.entries(cats).map(([id,name])=>{const list=all.filter(b=>b.category===id),active=list.filter(b=>!['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length,partnerCount=new Set(list.filter(b=>b.partnerName).map(b=>b.partnerId||b.partnerName)).size;return `<button class="service-summary ${categoryFilter===id?'chosen':''}" data-category-filter="${id}"><span class="category-mark">${categoryIcon(id)}</span><span><strong>${esc(name)}</strong><small>${list.length} bookings · ${partnerCount} partners</small></span><b>${active}<small>active</small></b></button>`;}).join('');
+    const active=all.filter(b=>!['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length,partnerCount=new Set(all.filter(b=>b.partnerName).map(b=>b.partnerId||b.partnerName)).size;
+    return `${heading('SERVICE MANAGEMENT','Bookings <em>& visits.</em>','Service load, partner coverage and each visit in one place.',api.demo?'<button class="button button-primary" data-new-booking>＋ New booking</button>':'')}<div class="service-summary-grid"><button class="service-summary ${categoryFilter==='all'?'chosen':''}" data-category-filter="all"><span class="category-mark">▤</span><span><strong>All services</strong><small>${all.length} bookings · ${partnerCount} partners</small></span><b>${active}<small>active</small></b></button>${categoryCards}</div><div class="toolbar"><div class="search-field"><span>⌕</span><input id="booking-search" placeholder="Search customer, service, partner or ID"></div><div class="filter-tabs"><button class="filter-tab ${bookingFilter==='all'?'active':''}" data-filter="all">All <b>${rows.length}</b></button><button class="filter-tab ${bookingFilter==='open'?'active':''}" data-filter="open">Needs attention</button><button class="filter-tab ${bookingFilter==='active'?'active':''}" data-filter="active">In progress</button><button class="filter-tab ${bookingFilter==='done'?'active':''}" data-filter="done">Completed</button></div><button class="button button-quiet" data-refresh>↻ Refresh</button></div><div class="panel data-panel"><div class="table-wrap"><table><thead><tr><th>Customer / ticket</th><th>Service</th><th>Appointment</th><th>Care partner</th><th>Status</th><th>Actions</th></tr></thead><tbody id="booking-rows">${rows.map(b=>`<tr data-search="${esc(`${b.customerName} ${category(b.category)} ${b.id} ${b.partnerName}`.toLowerCase())}" data-status="${esc(b.status)}">${bookingRow(b).replace('<tr>','').replace('</tr>','')}<td><button class="small-action" data-ticket="${esc(b.id)}">View ticket</button> ${bookingAction(b)}</td></tr>`).join('')}</tbody></table></div>${rows.length?'':empty('No bookings in this category','Choose another service or create a demo booking.')}</div><div class="booking-live-foot"><span class="live-pulse"></span><span>${api.demo?'Showcase records · temporary demo data':'Live bookings, partners and journeys · auto-refreshes while this view is open.'}</span><button class="text-link" data-refresh>Refresh now</button></div>`;
+  }
+  function categoryIcon(id) { return ({NURSING:'✚',AYURVEDIC_THERAPY:'◉',COUNSELLING:'♡'})[id]||'✳'; }
+  function showBookingTicket(id) {
+    const b=bookings.find(x=>String(x.id)===String(id));if(!b)return;const j=journeys.find(x=>String(x.bookingId)===String(id)),p=partners.find(x=>(b.partnerId&&String(x.id)===String(b.partnerId))||(b.partnerName&&x.name===b.partnerName)),loc=j?.exactLocation,phone=p?.phone||'';
+    const map=loc&&Number.isFinite(Number(loc.lat))&&Number.isFinite(Number(loc.lng))?`https://maps.google.com/?q=${loc.lat},${loc.lng}`:'';
+    const steps=['ASSIGNED','CONFIRMED','PARTNER_ON_THE_WAY','PARTNER_ARRIVED','IN_PROGRESS','COMPLETED'],idx=steps.indexOf(b.status);
+    $('#modal-layer').innerHTML=`<div class="modal-backdrop" data-modal-close><section class="modal-card ticket-card"><button class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>SERVICE TICKET · ${esc(String(b.id).slice(0,15))}</span><h2>${esc(category(b.category))} visit</h2><p>${esc(b.customerName)} · ${esc(b.address||'Home service')}</p><div class="ticket-facts"><span><small>APPOINTMENT</small><b>${esc(dateLabel(b.date))} · ${esc(timeLabel(b.time))}</b></span><span><small>VISIT STATUS</small>${pill(b.status)}</span></div><div class="ticket-section"><span class="panel-kicker">SERVICE PROGRESS</span><div class="progress-steps">${steps.map((s,i)=>`<span class="progress-step ${idx>=i?'passed':''} ${s===b.status?'current':''}"><i>${idx>=i?'✓':i+1}</i><small>${esc(statusName(s))}</small></span>`).join('')}</div></div><div class="ticket-section"><span class="panel-kicker">ASSIGNED CARE PARTNER</span><div class="contact-person"><span class="avatar">${initials(b.partnerName)}</span><div>${b.partnerName?`<button class="partner-link" data-partner-open="${esc(b.partnerId||'')}" data-partner-name="${esc(b.partnerName)}">${esc(b.partnerName)} ↗</button>`:'<strong>Awaiting assignment</strong>'}<small>${esc((p?.skills||[]).map(s=>category(s.category)).join(' · ')||b.skill||'')}</small></div>${phone?`<a class="call-button" href="tel:${esc(phone)}">☎ Call partner</a>`:'<span class="muted-copy">Phone unavailable</span>'}</div></div><div class="ticket-section tracking-box"><div class="tracking-head"><span class="panel-kicker">SERVICE LOCATION TRACKING</span><button class="text-link" data-refresh-ticket="${esc(b.id)}">↻ Update</button></div>${loc?`<div class="location-live"><span class="live-pulse"></span><strong>Partner location received</strong><small>Last update: ${esc(j.partnerSeenAt?new Date(j.partnerSeenAt).toLocaleString('en-IN'):'recently')}</small><span class="location-coords">${Number(loc.lat).toFixed(5)}, ${Number(loc.lng).toFixed(5)}</span>${j.eta?`<span>ETA ${esc(new Date(j.eta).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}))}</span>`:''}${j.distanceKm!=null?`<span>${Number(j.distanceKm).toFixed(1)} km from service location</span>`:''}${map?`<a class="map-link" href="${map}" target="_blank" rel="noopener">Open location in map ↗</a>`:''}</div>`:`<div class="location-empty"><span>◎</span><strong>${api.demo?'Demo location is simulated':'No fresh GPS location'}</strong><small>${api.demo?'Showcase data has service status but no real GPS coordinates.':'Partner GPS appears here during an active visit when a fresh location ping is available.'}</small></div>`}</div><div class="ticket-actions"><button class="button button-quiet" data-modal-close>Close ticket</button>${phone?`<a class="button button-primary" href="tel:${esc(phone)}">☎ Call partner</a>`:''}</div></section></div>`;bindModal();
+  }
+  function showPartnerTicket(id,name) {
+    const p=partners.find(x=>(id&&String(x.id)===String(id))||x.name===name);if(!p){toast('Partner details are not present in this account response.');return;}const assigned=bookings.filter(b=>(b.partnerId&&String(b.partnerId)===String(p.id))||(!b.partnerId&&b.partnerName===p.name)),j=journeys.find(x=>String(x.partnerId)===String(p.id)),loc=j?.exactLocation,phone=p.phone||'',map=loc?`https://maps.google.com/?q=${loc.lat},${loc.lng}`:'';
+    $('#modal-layer').innerHTML=`<div class="modal-backdrop" data-modal-close><section class="modal-card ticket-card"><button class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>PARTNER SERVICE TICKET</span><div class="partner-ticket-head"><span class="avatar profile-avatar">${initials(p.name)}</span><div><h2>${esc(p.name)}</h2><p>${esc(p.code||String(p.id||'').slice(0,12))} · ${pill(p.registrationStatus)}</p></div></div><div class="ticket-facts"><span><small>AVAILABILITY</small><b>${p.available?'Available now':'Unavailable'}</b></span><span><small>ACTIVE ASSIGNMENTS</small><b>${assigned.filter(b=>!['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length}</b></span></div><div class="ticket-section"><span class="panel-kicker">SKILLS</span><div class="skill-chip-list">${(p.skills||[]).map(s=>`<span class="skill-chip">${esc(category(s.category))}${s.code?` · ${esc(s.code)}`:''}</span>`).join('')||'<span class="muted-copy">No skills returned</span>'}</div></div><div class="ticket-section"><span class="panel-kicker">DIRECT CONTACT</span><div class="contact-actions">${phone?`<a class="call-button" href="tel:${esc(phone)}">☎ Call ${esc(p.name)}</a><span>${esc(phone)}</span>`:'<span class="muted-copy">Partner phone is not present in this API response.</span>'}</div></div><div class="ticket-section tracking-box"><div class="tracking-head"><span class="panel-kicker">LIVE PARTNER LOCATION</span><button class="text-link" data-refresh-ticket="partner" data-partner-open="${esc(p.id)}" data-partner-name="${esc(p.name)}">↻ Update</button></div>${loc?`<div class="location-live"><span class="live-pulse"></span><strong>Fresh journey location</strong><small>${esc(j.partnerSeenAt?new Date(j.partnerSeenAt).toLocaleString('en-IN'):'Recently updated')}</small><span class="location-coords">${Number(loc.lat).toFixed(5)}, ${Number(loc.lng).toFixed(5)}</span>${map?`<a class="map-link" href="${map}" target="_blank" rel="noopener">Open on map ↗</a>`:''}</div>`:`<div class="location-empty"><span>◎</span><strong>${api.demo?'Demo GPS is simulated':'No active journey location'}</strong><small>Location needs an active service journey and a fresh partner GPS update.</small></div>`}</div><div class="ticket-section"><span class="panel-kicker">RECENT ASSIGNMENTS</span>${assigned.length?`<div class="mini-booking-list">${assigned.slice(0,5).map(b=>`<button data-ticket="${esc(b.id)}"><span><strong>${esc(category(b.category))}</strong><small>${esc(b.customerName)} · ${esc(dateLabel(b.date))}</small></span>${pill(b.status)} →</button>`).join('')}</div>`:empty('No linked bookings','Partner assignments will appear here.')}</div><div class="ticket-actions"><button class="button button-quiet" data-modal-close>Close ticket</button>${phone?`<a class="button button-primary" href="tel:${esc(phone)}">☎ Call partner</a>`:''}</div></section></div>`;bindModal();
+  }
+  function bindModal() { const modal=$('#modal-layer');modal.querySelectorAll('[data-modal-close]').forEach(x=>x.addEventListener('click',closeModal));modal.querySelectorAll('[data-partner-open]').forEach(x=>x.addEventListener('click',()=>showPartnerTicket(x.dataset.partnerOpen,x.dataset.partnerName)));modal.querySelectorAll('[data-ticket]').forEach(x=>x.addEventListener('click',()=>showBookingTicket(x.dataset.ticket)));modal.querySelectorAll('[data-refresh-ticket]').forEach(x=>x.addEventListener('click',async()=>{try{await loadWorkspace();x.dataset.refreshTicket==='partner'?showPartnerTicket(x.dataset.partnerOpen,x.dataset.partnerName):showBookingTicket(x.dataset.refreshTicket);}catch(e){toast(e.message);}})); }
+  function drawServices() {
+    if(selectedService)return drawServiceDetail(selectedService);
+    const action=(api.demo||(api.token&&isAdmin()))?'<button class="button button-primary" data-add-service>＋ Add service offering</button>':'';
+    return `${heading('SERVICE MANAGEMENT','Service <em>categories.</em>','Open a category to inspect bookings, partner coverage and active visits.',action)}<div class="notice-card"><span>i</span><p><strong>Category controls</strong> Manage the active catalogue, service demand and partner coverage from each category.</p></div><div class="service-grid">${Object.entries(cats).map(([id,name],i)=>{const base=services.find(s=>s.id===id||(s.category===id&&s.serviceCode===id))||{id,name,active:true},rows=bookings.filter(b=>b.category===id),active=rows.filter(b=>!['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length,partnerCount=new Set(rows.filter(b=>b.partnerName).map(b=>b.partnerId||b.partnerName)).size,offerings=services.filter(s=>s.category===id&&s.id!==id&&s.serviceCode!==id);return `<article class="panel service-card service-manage-card"><span class="service-number">0${i+1}</span><span class="service-illustration tint-${i}">${categoryIcon(id)}</span><span class="panel-kicker">CARE CATEGORY</span><h2>${esc(name)}</h2><p>Review service load, qualified partners and appointment progress for this category.</p><div class="category-kpis"><span><b>${rows.length}</b> bookings</span><span><b>${partnerCount||partners.filter(p=>(p.skills||[]).some(s=>s.category===id)).length}</b> partners</span><span><b>${active}</b> active</span></div><div class="service-card-actions"><button class="button button-quiet" data-service-open="${id}">Manage category →</button>${(api.demo||(api.token&&isAdmin()))?`<button class="switch-button ${base.active===false?'':'is-on'}" data-action="service-toggle" data-id="${esc(base.id)}" data-active="${base.active===false}">${base.active===false?'Activate':'Pause'}</button>`:''}</div>${offerings.length?`<small class="offer-count">${offerings.length} custom offering${offerings.length===1?'':'s'}</small>`:''}</article>`;}).join('')}</div>`;
+  }
+  function drawServiceDetail(id) {
+    const name=category(id),base=services.find(s=>s.id===id||(s.category===id&&s.serviceCode===id))||{id,name,active:true},rows=bookings.filter(b=>b.category===id),qualified=partners.filter(p=>(p.skills||[]).some(s=>s.category===id)),offerings=services.filter(s=>s.category===id&&s.id!==id&&s.serviceCode!==id);
+    return `${heading('<button class="back-link inline-back" data-service-back>← All categories</button>',`${esc(name)} <em>management.</em>`,'Category bookings, qualified partner coverage and visit progress.',(api.demo||(api.token&&isAdmin()))?'<button class="button button-primary" data-add-service>＋ Add offering</button>':'')}<div class="category-detail-hero panel"><div><span class="panel-kicker">CATEGORY STATUS</span><h2>${esc(name)}</h2><p>${base.active===false?'Paused in the service catalogue.':'Active service category.'}</p></div><span class="status-pill ${base.active===false?'bad':'good'}"><i></i>${base.active===false?'Paused':'Active'}</span>${(api.demo||(api.token&&isAdmin()))?`<button class="button ${base.active===false?'button-primary':'button-quiet'}" data-action="service-toggle" data-id="${esc(base.id)}" data-active="${base.active===false}">${base.active===false?'Activate category':'Pause category'}</button><button class="button button-quiet" data-edit-service="${esc(base.id)}">Edit details</button>`:''}</div><div class="metric-grid">${metric('Bookings',rows.length,'Loaded service records','▤','blue')}${metric('Active visits',rows.filter(b=>!['COMPLETED','CANCELLED','REJECTED'].includes(b.status)).length,'Open visits','⌁','green')}${metric('Qualified partners',qualified.length,'Declared matching skills','♧','violet')}${metric('Available partners',qualified.filter(p=>p.active&&p.available&&p.registrationStatus==='APPROVED').length,'Approved and available','✓','amber')}</div><div class="panel assignment-panel"><div class="panel-title"><div><span class="panel-kicker">VISIT PIPELINE</span><h2>${esc(name)} bookings</h2></div></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Customer</th><th>Service</th><th>Appointment</th><th>Partner</th><th>Progress</th><th></th></tr></thead><tbody>${rows.map(b=>`<tr>${bookingRow(b).replace('<tr>','').replace('</tr>','')}<td><button class="small-action" data-ticket="${esc(b.id)}">Ticket / track</button></td></tr>`).join('')}</tbody></table></div>`:empty(`No ${name} bookings yet`,'Appointments in this category will appear here.')}</div><div class="panel assignment-panel"><div class="panel-title"><div><span class="panel-kicker">PARTNER COVERAGE</span><h2>Qualified partners</h2></div></div>${qualified.length?`<div class="partner-grid">${qualified.map(partnerCard).join('')}</div>`:empty('No matching partners','Partners declaring this service skill will appear here.')}</div><div class="panel assignment-panel"><div class="panel-title"><div><span class="panel-kicker">SERVICE OFFERINGS</span><h2>Services in this category</h2></div>${(api.demo||(api.token&&isAdmin()))?'<button class="text-link" data-add-service>Add offering →</button>':''}</div>${offerings.length?`<div class="offering-list">${offerings.map(s=>`<div class="offering-row"><span class="category-mark">✳</span><div><strong>${esc(s.name)}</strong><small>${esc(s.description||'')}</small></div><span class="status-pill ${s.active?'good':'muted'}"><i></i>${s.active?'Active':'Paused'}</span>${(api.demo||(api.token&&isAdmin()))?`<button class="switch-button ${s.active?'is-on':''}" data-action="service-toggle" data-id="${esc(s.id)}" data-active="${!s.active}">${s.active?'Pause':'Activate'}</button><button class="switch-button" data-edit-service="${esc(s.id)}">Edit</button>`:''}</div>`).join('')}`:empty('No custom offerings',(api.demo||(api.token&&isAdmin()))?'Add an offering for this category.':'No additional offerings are registered for this category.')}</div>`;
+  }
+  function openServiceForm() { if(!api.demo)return toast('Live service-catalogue controls are not available.');$('#modal-layer').innerHTML=`<div class="modal-backdrop" data-modal-close><form class="modal-card" id="service-create"><button type="button" class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>SERVICE CATALOGUE</span><h2>Add service offering</h2><p>New demo services are created active in this category.</p><label>Service name<input name="name" required maxlength="100" placeholder="e.g. Post-operative nursing"></label><label>Category<select name="category">${Object.entries(cats).map(([id,n])=>`<option value="${id}" ${selectedService===id?'selected':''}>${esc(n)}</option>`).join('')}</select></label><label>Description<input name="description" maxlength="240" placeholder="Describe the offering"></label><div class="modal-actions"><button type="button" class="button button-quiet" data-modal-close>Cancel</button><button type="submit" class="button button-primary">Create active service →</button></div></form></div>`;bindModal();$('#service-create')?.addEventListener('submit',createOffering); }
+  async function createOffering(e) { e.preventDefault();const data=Object.fromEntries(new FormData(e.currentTarget));try{await demoRequest('/services',{method:'POST',body:JSON.stringify(data)});await loadWorkspace();selectedService=data.category;page='services';renderApp();toast('Active demo service created.');}catch(error){toast(error.message);} }
+  function partnerCard(p) {
+    const skills=(p.skills||[]).map(s=>`${category(s.category)}${s.code?` · ${s.code}`:''}`).join(' / ')||'Skills not listed';
+    const action=api.demo&&p.registrationStatus==='PENDING'?`<button class="small-action" data-action="verify" data-id="${esc(p.id)}">Approve partner</button>`:api.token&&isAdmin()&&p.registrationStatus==='PENDING'?`<button class="small-action" data-action="verify" data-id="${esc(p.id)}">Approve partner</button>`:'';
+    return `<article class="panel partner-card" data-partner="${esc(`${p.name} ${skills}`.toLowerCase())}" data-review="${p.registrationStatus==='PENDING'}" data-active="${Boolean(p.active)}"><div class="partner-card-head"><span class="avatar partner-avatar">${initials(p.name)}</span><div><h3><button class="partner-name-link" data-partner-open="${esc(p.id)}" data-partner-name="${esc(p.name)}">${esc(p.name||'Care partner')} ↗</button></h3><small>${esc(p.code||String(p.id||'').slice(0,10))}</small></div>${pill(p.registrationStatus)}</div><div class="partner-skills"><span class="panel-kicker">QUALIFICATIONS</span><p>${esc(skills)}</p></div><div class="partner-card-meta"><span>Completed visits <b>${esc(p.completedBookings??'—')}</b></span><span>Upcoming <b>${esc(p.upcomingBookings??'—')}</b></span></div>${p.available?'<span class="availability"><i></i>Available now</span>':'<span class="availability off"><i></i>Currently unavailable</span>'}${action}</article>`;
+  }
+  function openServiceForm() {
+    if(!(api.demo||(api.token&&isAdmin())))return toast('Only an admin can add services.');
+    $('#modal-layer').innerHTML=`<div class="modal-backdrop" data-modal-close><form class="modal-card" id="service-create"><button type="button" class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>SERVICE CATALOGUE</span><h2>Add service offering</h2><p>New services are created active and can be paused or edited later.</p><label>Service name<input name="name" required maxlength="120" placeholder="e.g. Post-operative nursing"></label><label>Category<select name="category">${Object.entries(cats).map(([id,n])=>`<option value="${id}" ${selectedService===id?'selected':''}>${esc(n)}</option>`).join('')}</select></label><label>Service code <span>(optional, generated from name)</span><input name="serviceCode" maxlength="64" placeholder="e.g. POST_OP_NURSING"></label><label>Description<input name="description" maxlength="1000" placeholder="Describe this service"></label><div class="modal-actions"><button type="button" class="button button-quiet" data-modal-close>Cancel</button><button type="submit" class="button button-primary">Create active service →</button></div></form></div>`;bindModal();$('#service-create')?.addEventListener('submit',createOffering);
+  }
+  async function createOffering(e) {
+    e.preventDefault();const data=Object.fromEntries(new FormData(e.currentTarget));
+    try { if(api.demo)await demoRequest('/services',{method:'POST',body:JSON.stringify(data)});else await request('/v1/admin/services',{method:'POST',body:JSON.stringify(data)});await loadWorkspace();selectedService=data.category;page='services';renderApp();toast('Service created active.'); }
+    catch(error){toast(error.message);}
+  }
+  function openServiceEditor(id) {
+    const item=services.find(s=>String(s.id)===String(id));if(!item)return toast('Service record is not available.');
+    $('#modal-layer').innerHTML=`<div class="modal-backdrop" data-modal-close><form class="modal-card" id="service-edit" data-id="${esc(item.id)}"><button type="button" class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>SERVICE CATALOGUE</span><h2>Edit service</h2><p>${esc(category(item.category||item.serviceCode||item.id))} · ${esc(item.serviceCode||'Category service')}</p><label>Service name<input name="name" required maxlength="120" value="${esc(item.name)}"></label><label>Description<input name="description" maxlength="1000" value="${esc(item.description||'')}"></label><div class="modal-actions"><button type="button" class="button button-quiet" data-modal-close>Cancel</button><button type="submit" class="button button-primary">Save service →</button></div></form></div>`;bindModal();$('#service-edit')?.addEventListener('submit',saveServiceEdit);
+  }
+  async function saveServiceEdit(e) {
+    e.preventDefault();const id=encodeURIComponent(e.currentTarget.dataset.id),data=Object.fromEntries(new FormData(e.currentTarget));
+    try{if(api.demo)await demoRequest(`/services/${id}`,{method:'PATCH',body:JSON.stringify(data)});else await request(`/v1/admin/services/${id}`,{method:'PATCH',body:JSON.stringify(data)});await loadWorkspace();renderApp();toast('Service details saved.');}catch(error){toast(error.message);}
+  }
+  function drawReports() {
+    const counts = Object.entries(cats).map(([id, name]) => [name, bookings.filter(b => b.category === id).length]);
+    const max = Math.max(1, ...counts.map(x => x[1])); const completed = bookings.filter(b => b.status === 'COMPLETED').length;
+    return `${heading('BUSINESS INSIGHTS', 'Operations <em>reports.</em>', 'A summary of the booking and service data available in this workspace.')}<div class="metric-grid">${metric('Bookings', bookings.length, 'Visible in current account', '▤', 'blue')}${metric('Completed visits', completed, 'Marked complete', '✓', 'green')}${metric('Completion rate', bookings.length ? `${Math.round(completed * 100 / bookings.length)}%` : '—', 'Based on loaded bookings', '◒', 'violet')}${metric('Revenue', '—', 'No payment or revenue API connected', '₹', 'amber')}</div><div class="report-grid"><article class="panel report-panel"><div class="panel-title"><div><span class="panel-kicker">SERVICE MIX</span><h2>Bookings by category</h2></div></div>${counts.map(([name,value]) => `<div class="bar-row"><span>${name}</span><div class="bar-track"><i style="width:${Math.max(value ? 8 : 0, value / max * 100)}%"></i></div><b>${value}</b></div>`).join('')}</article><article class="panel report-panel"><div class="panel-title"><div><span class="panel-kicker">DATA AVAILABILITY</span><h2>Workspace coverage</h2></div></div><div class="coverage-row"><span>Bookings</span>${pill('COMPLETED')}<small>Available</small></div><div class="coverage-row"><span>Partner roster</span>${partners.length ? pill('APPROVED') : pill('PENDING')}<small>${partners.length ? 'Available' : 'No records'}</small></div><div class="coverage-row"><span>Payments & payouts</span><span class="status-pill muted">Not connected</span><small>API unavailable</small></div><div class="coverage-row"><span>Employee performance</span><span class="status-pill muted">Not connected</span><small>API unavailable</small></div></article></div><p class="data-note">${api.demo ? 'All showcase metrics are calculated from in-memory demo records.' : 'Reports use only records your connected account can read. Revenue metrics are not inferred.'}</p>`;
+  }
+  function drawProfile() {
+    const p = partners[0] || {};
+    return `${heading('EMPLOYEE WORKSPACE', 'My <em>profile.</em>', 'Your signed-in identity and available operational scope.') }<article class="panel profile-card"><span class="avatar profile-avatar">${initials(api.subject)}</span><div><span class="panel-kicker">SIGNED-IN ACCOUNT</span><h2>${esc(api.demo ? 'Demo Operations Manager' : api.subject)}</h2><p>${esc(api.role.replaceAll('_', ' '))} · Employee portal</p></div></article><div class="notice-card"><span>i</span><p><strong>Access follows your backend role.</strong> This project supports Admin, Dispatcher, Operations Manager and partner/customer roles. It does not yet provide employee accounts, departments, designations or per-module permission management.</p></div>${api.demo ? '' : p.id ? `<article class="panel profile-details"><h2>Partner profile</h2><p>${esc(p.name || '')} · ${esc(p.registrationStatus || '')}</p></article>` : ''}`;
+  }
+  function empty(title, copy) { return `<div class="empty-state"><span>⌁</span><strong>${title}</strong><p>${copy}</p></div>`; }
+  function bindApp() {
+    $('[data-logout]')?.addEventListener('click', logout);
+    $('[data-menu]')?.addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+    document.querySelectorAll('[data-refresh]').forEach(btn => btn.addEventListener('click', async () => { try { await loadWorkspace(); drawPage(); bindPage(); toast('Workspace refreshed.'); } catch (e) { toast(e.message); } }));
+    bindPage();
+  }
+  function bindPage() {
+    document.querySelectorAll('[data-page]').forEach(btn => btn.addEventListener('click', () => { page = btn.dataset.page; renderApp(); }));
+    document.querySelectorAll('[data-open-bookings]').forEach(btn => btn.addEventListener('click', () => { page = 'bookings'; renderApp(); }));
+    document.querySelectorAll('[data-category-filter]').forEach(btn => btn.addEventListener('click', () => { categoryFilter = btn.dataset.categoryFilter; bookingFilter = 'all'; renderApp(); }));
+    document.querySelectorAll('[data-ticket]').forEach(btn => btn.addEventListener('click', () => showBookingTicket(btn.dataset.ticket)));
+    document.querySelectorAll('[data-partner-open]').forEach(btn => btn.addEventListener('click', () => showPartnerTicket(btn.dataset.partnerOpen, btn.dataset.partnerName)));
+    document.querySelectorAll('[data-service-open]').forEach(btn => btn.addEventListener('click', () => { selectedService = btn.dataset.serviceOpen; renderApp(); }));
+    $('[data-service-back]')?.addEventListener('click', () => { selectedService = null; renderApp(); });
+    document.querySelectorAll('[data-add-service]').forEach(btn => btn.addEventListener('click', openServiceForm));
+    document.querySelectorAll('[data-add-partner]').forEach(btn => btn.addEventListener('click', openManualPartnerForm));
+    document.querySelectorAll('[data-edit-service]').forEach(btn => btn.addEventListener('click', () => openServiceEditor(btn.dataset.editService)));
+    $('#booking-search')?.addEventListener('input', filterBookings);
+    document.querySelectorAll('[data-filter]').forEach(btn => btn.addEventListener('click', () => { document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('active', x === btn)); filterBookings(btn.dataset.filter); }));
+    $('#partner-search')?.addEventListener('input', filterPartners);
+    document.querySelectorAll('[data-partner-filter]').forEach(btn => btn.addEventListener('click', () => { document.querySelectorAll('[data-partner-filter]').forEach(x => x.classList.toggle('active', x === btn)); filterPartners(btn.dataset.partnerFilter); }));
+    document.querySelectorAll('[data-action]').forEach(btn => btn.addEventListener('click', () => performAction(btn)));
+    document.querySelectorAll('[data-new-booking]').forEach(btn => btn.addEventListener('click', openBookingModal));
+    $('#booking-create')?.addEventListener('submit', createBooking);
+  }
+  function filterBookings(filter = bookingFilter) {
+    bookingFilter = filter;
+    const q = ($('#booking-search')?.value || '').toLowerCase();
+    document.querySelectorAll('#booking-rows tr').forEach(row => { const st = row.dataset.status; const statusMatch = filter === 'all' || filter === 'open' && ['NEW','PENDING','REJECTED'].includes(st) || filter === 'active' && ['ASSIGNED','CONFIRMED','PARTNER_ON_THE_WAY','PARTNER_NEARBY','PARTNER_ARRIVED','IN_PROGRESS'].includes(st) || filter === 'done' && st === 'COMPLETED'; row.hidden = !statusMatch || !row.dataset.search.includes(q); });
+  }
+  function filterPartners(filter = 'all') {
+    const q = ($('#partner-search')?.value || '').toLowerCase();
+    document.querySelectorAll('[data-partner]').forEach(card => { card.hidden = !(card.dataset.partner.includes(q) && (filter === 'all' || filter === 'pending' && card.dataset.review === 'true' || filter === 'available' && card.dataset.active === 'true')); });
+  }
+  async function performAction(btn) {
+    btn.disabled = true;
+    try {
+      const id = encodeURIComponent(btn.dataset.id), action = btn.dataset.action;
+      if (action === 'allocate') {
+        if (api.demo) await demoRequest(`/bookings/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'PENDING' }) });
+        else await request(`/v1/admin/bookings/${id}/allocation-start`, { method: 'POST' });
+        toast('Booking moved to allocation.');
+      } else if (action === 'search-partners') {
+        await openPartnerRecommendations(id); return;
+      } else if (action === 'verify') {
+        if (api.demo) await demoRequest(`/partners/${id}`, { method: 'PATCH', body: JSON.stringify({ approved: true }) });
+        else await request(`/v1/admin/partners/${id}/verification`, { method: 'PATCH', body: JSON.stringify({ approved: true }) });
+        toast('Partner review updated.');
+      } else if (action === 'save-status') {
+        const status = $(`[data-status-select="${CSS.escape(btn.dataset.id)}"]`).value;
+        await demoRequest(`/bookings/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); toast('Demo booking status updated.');
+      } else if (action === 'service-toggle') {
+        const active = btn.dataset.active === 'true';
+        if (api.demo) await demoRequest(`/services/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+        else await request(`/v1/admin/services/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+        toast(btn.dataset.active === 'true' ? 'Service activated in demo catalogue.' : 'Service paused in demo catalogue.');
+      }
+      await loadWorkspace(); renderApp();
+    } catch (error) { toast(error.message); btn.disabled = false; }
+  }
+  async function openPartnerRecommendations(id) {
+    const layer = $('#modal-layer');
+    layer.innerHTML = `<div class="modal-backdrop"><section class="modal-card ticket-card"><span class="eyebrow"><i></i>POSTGIS NEAREST-PARTNER SEARCH</span><h2>Matching active partners</h2><p>Checking service skill, current availability, appointment schedule, service radius and fresh location…</p></section></div>`;
+    try {
+      const matches = await request(`/v1/admin/bookings/${encodeURIComponent(id)}/partner-recommendations`);
+      const booking = bookings.find(b => String(b.id) === String(id));
+      layer.innerHTML = `<div class="modal-backdrop" data-modal-close><section class="modal-card ticket-card"><button class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>POSTGIS NEAREST-PARTNER SEARCH</span><h2>Assign a care partner</h2><p>${esc(booking ? `${booking.customerName} · ${category(booking.category)} · ${booking.address || ''}` : 'Eligible partners sorted by distance')}</p><div class="candidate-list">${matches.length ? matches.map((m,i)=>`<article class="candidate-row"><span class="avatar">${initials(m.name)}</span><div class="candidate-info"><strong>${esc(m.name)}</strong><small>${Number(m.distanceKm).toFixed(1)} km · Active · Available · Fresh location</small></div>${m.phone?`<a class="call-button" href="tel:${esc(m.phone)}">Call</a>`:''}<button class="button ${i===0?'button-primary':'button-quiet'}" data-assign-partner="${esc(m.partnerId)}" data-booking-id="${esc(id)}">${i===0?'Recommended · Assign':'Assign'}</button></article>`).join(''):'<div class="empty-state"><strong>No eligible active partners found</strong><p>Check partner GPS, active/available status, verified skill, working hours and service radius.</p></div>'}</div><div class="modal-actions"><button class="button button-quiet" data-modal-close>Close</button></div></section></div>`;
+      bindModal();
+      layer.querySelectorAll('[data-assign-partner]').forEach(button => button.addEventListener('click', async () => {
+        button.disabled = true;
+        try { await request(`/v1/admin/bookings/${encodeURIComponent(button.dataset.bookingId)}/assign`, {method:'PATCH', body:JSON.stringify({partnerId:button.dataset.assignPartner, expectedVersion:booking?.version ?? 0})}); await loadWorkspace(); renderApp(); toast('Partner assigned. Booking notifications queued.'); }
+        catch (error) { toast(error.message); button.disabled = false; }
+      }));
+    } catch (error) { closeModal(); toast(error.message); }
+  }
+  function openManualPartnerForm() {
+    $('#modal-layer').innerHTML = `<div class="modal-backdrop" data-modal-close><form class="modal-card" id="manual-partner-form"><button type="button" class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>ADMIN PARTNER INTAKE</span><h2>Add partner manually</h2><p>Saved to the partner database as pending verification. Add an existing hub ID; no password or login is created here.</p><label>Operating hub ID<input name="centreId" required placeholder="Hub UUID"></label><div class="form-row"><label>Full name<input name="name" required></label><label>Phone<input name="phone" type="tel" required></label></div><div class="form-row"><label>Email<input name="email" type="email" required></label><label>Service radius (km)<input name="serviceRadiusKm" type="number" min="1" max="500" value="15" required></label></div><label>Qualification details<input name="qualificationDetails" required placeholder="Qualification / licence details"></label><div class="form-row"><label>Service category<select name="category"><option value="NURSING">Nursing</option><option value="AYURVEDIC_THERAPY">Ayurvedic therapy</option><option value="COUNSELLING">Counselling</option></select></label><label>Skill code<input name="skillCode" required placeholder="e.g. HOME_NURSING"></label></div><label>Skill qualification<input name="skillQualification" required></label><div class="modal-actions"><button type="button" class="button button-quiet" data-modal-close>Cancel</button><button class="button button-primary" type="submit">Save pending partner</button></div></form></div>`;
+    bindModal();
+    $('#manual-partner-form').addEventListener('submit', async e => {
+      e.preventDefault(); const f = new FormData(e.currentTarget);
+      const payload = {centreId:f.get('centreId'), name:f.get('name'), email:f.get('email'), phone:f.get('phone'), qualificationDetails:f.get('qualificationDetails'), serviceRadiusKm:Number(f.get('serviceRadiusKm')), skills:[{category:f.get('category'), code:f.get('skillCode'), qualificationDetails:f.get('skillQualification')}]};
+      try { await request('/v1/admin/partners',{method:'POST',body:JSON.stringify(payload)}); await loadWorkspace(); page='partners'; renderApp(); toast('Partner profile saved as pending verification.'); }
+      catch(error) { toast(error.message); }
+    });
+  }
+  function openBookingModal() {
+    if (!api.demo) return toast('Creating a booking requires a CUSTOMER account in the current backend.');
+    $('#modal-layer').innerHTML = `<div class="modal-backdrop" data-modal-close><form class="modal-card" id="booking-create"><button type="button" class="modal-x" data-modal-close>×</button><span class="eyebrow"><i></i>NEW SERVICE REQUEST</span><h2>Create a booking</h2><p>Add a showcase appointment to the shared demo workspace.</p><label>Customer name<input name="name" required placeholder="Customer full name"></label><div class="form-row"><label>Service category<select name="category"><option value="NURSING">Nursing</option><option value="AYURVEDIC_THERAPY">Ayurvedic therapy</option><option value="COUNSELLING">Counselling</option></select></label><label>Required skill<input name="skill" required placeholder="e.g. Home care"></label></div><div class="form-row"><label>Appointment date<input name="date" type="date" value="${dateToday()}" required></label><label>Start time<input name="time" type="time" value="10:00" required></label></div><label>Service address<input name="address" required placeholder="Area, city"></label><div class="modal-actions"><button type="button" class="button button-quiet" data-modal-close>Cancel</button><button type="submit" class="button button-primary">Create booking →</button></div></form></div>`;
+    $('[data-modal-close]', $('#modal-layer'))?.addEventListener('click', closeModal);
+    $('#booking-create')?.addEventListener('submit', createBooking);
+  }
+  async function createBooking(e) {
+    e.preventDefault(); const data = Object.fromEntries(new FormData(e.currentTarget));
+    try { await demoRequest('/bookings', { method: 'POST', body: JSON.stringify(data) }); await loadWorkspace(); page = 'bookings'; renderApp(); toast('Demo booking created.'); }
+    catch (error) { toast(error.message); }
+  }
+  function closeModal(e) { if (e?.target?.closest('.modal-card') && !e.target.classList.contains('modal-x') && !e.target.hasAttribute('data-modal-close')) return; $('#modal-layer').innerHTML = ''; }
+  async function logout() {
+    api.token = ''; api.role = ''; api.subject = ''; api.demo = false; api.portal = ''; page = 'dashboard';
+    for (const k of ['token', 'role', 'subject', 'portal', 'mode']) localStorage.removeItem(`sathiroute.${k}`);
+    openLogin('');
+  }
+  let timer;
+  function toast(message) { const node = $('#toast'); if (!node) return; node.textContent = message; node.classList.add('show'); clearTimeout(timer); timer = setTimeout(() => node.classList.remove('show'), 3600); }
+  async function initialize() {
+    if (!api.demo && api.token && api.role && api.portal) {
+      try { await loadWorkspace(); renderApp(); return; }
+      catch { api.token = ''; api.role = ''; api.subject = ''; api.portal = ''; }
     }
-    const inPeriod = value => { const date = dateFromIso(value); return date >= periodStart && date < periodEnd; };
-    const periodBookings = bookings.filter(b => inPeriod(b.date));
-    const periodShipments = shipments.filter(s => inPeriod(s.serviceDate));
-    const counts = ['NURSING','AYURVEDIC_THERAPY','COUNSELLING'].map(category => ({ name: categoryLabel(category), value: periodBookings.filter(b => b.category === category).length }));
-    const max = Math.max(1, ...counts.map(c => c.value));
-    const completed = periodBookings.filter(b => b.status === 'COMPLETED').length;
-    const successRate = periodBookings.length ? Math.round(100 * completed / periodBookings.length) : 0;
-    const revenue = period === 'This month' ? Number(demoMetrics?.revenueThisMonth || 0) : completed * 1800;
-    $('#report-kpis').innerHTML = `<div class="summary-tile"><span>${escapeHtml(period)} bookings</span><strong>${periodBookings.length}</strong></div><div class="summary-tile"><span>Completed</span><strong>${completed}</strong></div><div class="summary-tile"><span>Revenue (demo only)</span><strong>${api.demo ? `₹${revenue.toLocaleString('en-IN')}` : 'Not available'}</strong></div><div class="summary-tile"><span>Success rate</span><strong>${api.demo ? `${successRate}%` : 'Not available'}</strong></div>`;
-    $('#report-bars').innerHTML = counts.map(c => `<div class="report-bar-row"><span>${escapeHtml(c.name)}</span><div><i style="width:${c.value ? Math.max(4, 100 * c.value / max) : 0}%"></i></div><strong>${c.value}</strong></div>`).join('');
-    const statuses = ['PLANNED','IN_TRANSIT','OUT_FOR_DELIVERY','DELIVERED','FAILED_ATTEMPT'].map(status => ({ name: statusLabel(status), value: periodShipments.filter(s => s.status === status).length }));
-    const shipmentMax = Math.max(1, ...statuses.map(s => s.value));
-    $('#shipment-report-bars').innerHTML = statuses.map(s => `<div class="report-bar-row"><span>${escapeHtml(s.name)}</span><div><i style="width:${s.value ? Math.max(4, 100 * s.value / shipmentMax) : 0}%"></i></div><strong>${s.value}</strong></div>`).join('');
-    $('#report-booking-copy').textContent = api.demo ? 'Bookings in selected demo period' : 'Bookings returned by connected API';
-    $('#report-shipment-copy').textContent = api.demo ? 'Shipments in selected demo period' : 'Shipment list is unavailable';
+    if (api.demo && api.portal) {
+      try { await loadWorkspace(); renderApp(); return; }
+      catch { api.demo = false; api.portal = ''; }
+    }
+    openLogin('');
   }
-  function renderOverviewPreviews() {
-    $('#dashboard-shipment-list').innerHTML = shipments.length ? shipments.slice(0, 3).map(s => `<div class="shipment-preview-row"><span class="shipment-box">▰</span><div><strong>${escapeHtml(s.reference || s.id)}</strong><small>${escapeHtml(s.routeName || s.address || 'Delivery')}</small></div>${statusPill(s.status)}</div>`).join('') : '<div class="empty-state compact-empty"><strong>No shipments yet</strong><p>Create one to see delivery activity.</p></div>';
-    const counts = ['NURSING','AYURVEDIC_THERAPY','COUNSELLING'].map(category => ({ name: categoryLabel(category), value: bookings.filter(b => b.category === category).length }));
-    const max = Math.max(1, ...counts.map(item => item.value));
-    $('#overview-analytics').innerHTML = counts.map(item => `<div class="overview-analytic-row"><span>${escapeHtml(item.name)}</span><div><i style="width:${item.value ? Math.max(5, item.value / max * 100) : 0}%"></i></div><strong>${item.value}</strong></div>`).join('');
-  }
-  function updateMetrics() {
-    $('#metric-total-bookings').textContent = String(bookings.length);
-    $('#metric-partners').innerHTML = `${partners.filter(p => p.active && p.registrationStatus === 'APPROVED').length}<span class="metric-denom"> / ${partners.length}</span>`;
-    $('#metric-deliveries').textContent = String(shipments.filter(s => s.serviceDate === isoDate(today)).length);
-    $('#metric-revenue').textContent = api.demo && demoMetrics ? `₹${(Number(demoMetrics.revenueThisMonth || 0) / 1000).toFixed(1)}k` : '—';
-    $('#metric-success').textContent = api.demo && demoMetrics ? `${Number(demoMetrics.successRate || 0)}%` : '—';
-    $('#shipment-nav-count').textContent = String(shipments.filter(s => !['DELIVERED','CANCELLED'].includes(s.status)).length || '');
-  }
-  function showPage(page) {
-    const target = document.getElementById(`page-${page}`); if (!target) return;
-    currentPage = page;
-    $$('.page').forEach(el => el.classList.toggle('active', el === target));
-    $$('.nav-link').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-    const names = { overview: 'Dashboard', bookings: 'Bookings', partners: 'Partners', services: 'Services', shipments: 'Shipments', routes: 'Routes', tracking: 'Live tracking', operations: 'Operations', reports: 'Reports', settings: 'Settings' };
-    $('#crumb').textContent = names[page]; document.title = `${names[page]} · SathiRoute`;
-    $('#sidebar').classList.remove('open');
-    if (page === 'routes' && api.token && !api.demo) loadLiveRoutes().then(renderRoutes).catch(() => {});
-  }
-  let toastTimer;
-  function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 3600); }
-  function openModal(id) { const modal = document.getElementById(id); modal.classList.add('open'); modal.setAttribute('aria-hidden', 'false'); const first = $('input,select,textarea', modal); setTimeout(() => first?.focus(), 60); }
-  function closeModal(id) { const modal = document.getElementById(id); modal.classList.remove('open'); modal.setAttribute('aria-hidden', 'true'); }
-  function dateDefaults() { const field = $('#booking-form [name="date"]'); field.min = isoDate(today); const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1); field.value = isoDate(tomorrow); }
-  function disconnectWorkspace() {
-    ['token', 'apiBase', 'role', 'subject', 'mode'].forEach(key => localStorage.removeItem(`sathiroute.${key}`));
-    api.token = ''; api.base = ''; api.role = ''; api.subject = ''; api.demo = false;
-    bookings = []; partners = []; journeys = []; routes = []; shipments = []; services = []; demoMetrics = null; demoActivity = [];
-    setLive(false); renderAll(); closeModal('connect-modal'); toast('Account disconnected.');
-  }
-  function bindEvents() {
-    $$('.nav-link').forEach(button => button.addEventListener('click', () => showPage(button.dataset.page)));
-    $$('[data-go]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.go)));
-    $$('[data-action="new-booking"]').forEach(button => button.addEventListener('click', async () => {
-      $('#booking-message').textContent = ''; dateDefaults();
-      $('#booking-form [name="latitude"]').required = !api.demo;
-      $('#booking-form [name="longitude"]').required = !api.demo;
-      try {
-        if (api.demo) throw Object.assign(new Error('demo workspace'), { status: 404 });
-        const profile = await request('/v1/customers/me');
-        for (const [field, key] of [['name', 'name'], ['email', 'email'], ['phone', 'phone']]) $('#booking-form [name="' + field + '"]').value = profile[key] || '';
-      } catch (error) { if (error.status !== 404) { toast(error.message); return; } }
-      openModal('booking-modal');
-    }));
-    $$('[data-action="add-partner"]').forEach(button => button.addEventListener('click', () => { $('#partner-demo-form').reset(); openModal('partner-modal'); }));
-    $$('[data-action="create-shipment"]').forEach(button => button.addEventListener('click', () => { $('#shipment-demo-form').reset(); openModal('shipment-modal'); }));
-    $$('[data-action="connect"]').forEach(button => button.addEventListener('click', () => { $('#connect-message').textContent = ''; $('#connect-form [name="token"]').value = api.token; $('#connect-form [name="apiBase"]').value = api.base; $('#connect-form [name="apiRole"]').value = api.role || 'AUTO'; openModal('connect-modal'); }));
-    $$('[data-close]').forEach(button => button.addEventListener('click', () => closeModal(button.dataset.close)));
-    $$('.modal-backdrop').forEach(backdrop => backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(backdrop.id); }));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') $$('.modal-backdrop.open').forEach(el => closeModal(el.id)); });
-    document.addEventListener('click', handleApiAction);
-    $('#mobile-menu').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
-    $('#open-demo-workspace').addEventListener('click', () => connectDemo(true).catch(error => { $('#demo-api-message').textContent = `Demo API unavailable: ${error.message}. Start the local Compose app with demo API enabled.`; }));
-    $('#settings-demo-button').addEventListener('click', () => connectDemo(true).catch(error => toast(`Demo API unavailable: ${error.message}`)));
-    $('#reset-demo-button').addEventListener('click', async () => { try { await demoRequest('/reset', { method: 'POST' }); await connectDemo(false); toast('Demo records have been reset.'); } catch (error) { toast(`Demo API unavailable: ${error.message}`); } });
-    $('#partner-demo-form').addEventListener('submit', async e => {
-      e.preventDefault(); const data = Object.fromEntries(new FormData(e.currentTarget));
-      try { await demoRequest('/partners', { method: 'POST', body: JSON.stringify(data) }); await connectDemo(false); closeModal('partner-modal'); showPage('partners'); toast('Demo partner added to the review queue.'); }
-      catch (error) { toast(error.message); }
-    });
-    $('#shipment-demo-form').addEventListener('submit', async e => {
-      e.preventDefault(); const data = Object.fromEntries(new FormData(e.currentTarget));
-      try { await demoRequest('/shipments', { method: 'POST', body: JSON.stringify(data) }); await connectDemo(false); closeModal('shipment-modal'); showPage('shipments'); toast('Demo shipment created.'); }
-      catch (error) { toast(error.message); }
-    });
-    $('#booking-search').addEventListener('input', renderBookings);
-    $('#global-search').addEventListener('keydown', e => {
-      if (e.key !== 'Enter') return;
-      const query = e.currentTarget.value.trim();
-      if (!query) return;
-      const bookingMatch = bookings.some(b => `${b.customerName} ${b.partnerName} ${b.skill} ${categoryLabel(b.category)} ${b.id}`.toLowerCase().includes(query.toLowerCase()));
-      const partnerMatch = partners.some(p => `${p.name} ${p.code || ''} ${(p.skills || []).map(skill => skill.code || skill.category).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
-      const shipmentMatch = shipments.some(s => `${s.reference} ${s.recipientName} ${s.routeName} ${s.address}`.toLowerCase().includes(query.toLowerCase()));
-      if (shipmentMatch && !bookingMatch && !partnerMatch) {
-        $('#shipment-search').value = query; showPage('shipments'); renderShipments();
-      } else if (partnerMatch && !bookingMatch) {
-        $('#partner-search').value = query;
-        showPage('partners'); renderPartners();
-      } else {
-        $('#booking-search').value = query;
-        bookingFilter = 'all';
-        $$('[data-filter]').forEach(button => button.classList.toggle('selected', button.dataset.filter === 'all'));
-        showPage('bookings'); renderBookings();
-      }
-    });
-    $('#partner-search').addEventListener('input', renderPartners);
-    $('#shipment-search').addEventListener('input', renderShipments);
-    $('#shipment-filter').addEventListener('change', renderShipments);
-    $('#report-period').addEventListener('change', renderReports);
-    $('.notification-button').addEventListener('click', () => { showPage('operations'); toast(`${bookings.filter(b => ['NEW','PENDING'].includes(b.status)).length + partners.filter(p => p.registrationStatus === 'PENDING').length} booking or partner items need attention.`); });
-    $('#settings-disconnect-api').addEventListener('click', disconnectWorkspace);
-    $$('[data-filter]').forEach(button => button.addEventListener('click', () => { bookingFilter = button.dataset.filter.toLowerCase() === 'all' ? 'all' : button.dataset.filter; $$('[data-filter]').forEach(b => b.classList.toggle('selected', b === button)); renderBookings(); }));
-    $$('[data-partner-filter]').forEach(button => button.addEventListener('click', () => { partnerFilter = button.dataset.partnerFilter; $$('[data-partner-filter]').forEach(b => b.classList.toggle('selected', b === button)); renderPartners(); }));
-    $('#refresh-bookings').addEventListener('click', () => api.token ? connectLive().catch(e => toast(e.message)) : toast('Connect an API token to refresh live bookings.'));
-    $('#route-prev').addEventListener('click', () => { routeDay.setDate(routeDay.getDate() - 1); renderRoutes(); if (api.token && !api.demo) loadLiveRoutes().then(renderRoutes).catch(e => toast(e.message)); });
-    $('#route-next').addEventListener('click', () => { routeDay.setDate(routeDay.getDate() + 1); renderRoutes(); if (api.token && !api.demo) loadLiveRoutes().then(renderRoutes).catch(e => toast(e.message)); });
-    $('#refresh-workspace').addEventListener('click', () => {
-      if (api.demo) connectDemo(false).catch(e => toast(e.message));
-      else if (api.token) connectLive().catch(e => toast(e.message));
-      else openModal('connect-modal');
-    });
-    $('#connect-form').addEventListener('submit', async e => {
-      e.preventDefault(); const form = new FormData(e.currentTarget); api.base = String(form.get('apiBase') || '').trim().replace(/\/$/, ''); api.token = String(form.get('token') || '').trim().replace(/^Bearer\s+/i, '');
-      if (!api.token) { $('#connect-message').textContent = 'Paste a valid access token to connect.'; return; }
-      api.demo = false; localStorage.removeItem('sathiroute.mode');
-      api.role = form.get('apiRole') === 'AUTO' ? jwtRole(api.token) : String(form.get('apiRole') || 'CUSTOMER');
-      localStorage.setItem('sathiroute.role', api.role);
-      localStorage.setItem('sathiroute.apiBase', api.base); localStorage.setItem('sathiroute.token', api.token); $('#connect-message').textContent = 'Checking access…';
-      try { await connectLive(); closeModal('connect-modal'); } catch (error) { $('#connect-message').textContent = error.message; }
-    });
-    $('#disconnect-api').addEventListener('click', disconnectWorkspace);
-    $('#demo-login-form').addEventListener('submit', async e => {
-      e.preventDefault(); const form = new FormData(e.currentTarget); const message = $('#demo-login-message'); message.textContent = 'Signing in…';
-      try {
-        const response = await fetch(apiUrl('/dev/session'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: form.get('role'), subject: form.get('subject') }) });
-        const session = await response.json();
-        if (!response.ok) throw new Error(session.detail || session.message || `Sign-in failed (${response.status})`);
-        api.token = session.accessToken; api.role = session.role; api.subject = session.subject;
-        localStorage.setItem('sathiroute.token', api.token); localStorage.setItem('sathiroute.role', api.role); localStorage.setItem('sathiroute.subject', api.subject);
-        await connectLive(); closeModal('connect-modal'); toast(`Connected as ${api.role}.`);
-      } catch (error) { message.textContent = `${error.message}. Check local demo auth settings and API connection.`; }
-    });
-    $('#booking-form').addEventListener('submit', submitBooking);
-    $('#use-location').addEventListener('click', () => {
-      const message = $('#booking-message');
-      if (!navigator.geolocation) { message.textContent = 'Location is not available in this browser. Enter the coordinates manually.'; return; }
-      message.textContent = 'Finding your location…';
-      navigator.geolocation.getCurrentPosition(position => {
-        $('#booking-form [name="latitude"]').value = position.coords.latitude.toFixed(6);
-        $('#booking-form [name="longitude"]').value = position.coords.longitude.toFixed(6);
-        message.textContent = 'Location added. Please confirm the service address.';
-      }, error => { message.textContent = error.code === 1 ? 'Location permission was declined. You can enter coordinates manually.' : 'Could not read location. Please enter coordinates manually.'; }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
-    });
-  }
-  async function handleApiAction(event) {
-    const bookingButton = event.target.closest('[data-booking-action]');
-    const partnerButton = event.target.closest('[data-partner-action]');
-    const shipmentButton = event.target.closest('[data-shipment-action]');
-    const serviceButton = event.target.closest('[data-service-action]');
-    const button = bookingButton || partnerButton || shipmentButton || serviceButton;
-    if (!button || (!api.token && !api.demo)) return;
-    button.disabled = true;
-    try {
-      if (api.demo && bookingButton) {
-        const nextStatus = { allocate: 'ASSIGNED', accept: 'CONFIRMED', reject: 'REJECTED', arrive: 'PARTNER_ARRIVED', start: 'IN_PROGRESS', complete: 'COMPLETED', confirm: 'COMPLETED' }[button.dataset.bookingAction];
-        if (nextStatus) await demoRequest(`/bookings/${encodeURIComponent(button.dataset.id)}`, { method: 'PATCH', body: JSON.stringify({ status: nextStatus }) });
-      } else if (api.demo && partnerButton) {
-        const body = button.dataset.partnerAction === 'verify' ? { approved: true } : { active: true };
-        await demoRequest(`/partners/${encodeURIComponent(button.dataset.id)}`, { method: 'PATCH', body: JSON.stringify(body) });
-      } else if (api.demo && shipmentButton) {
-        const row = button.closest('tr'); const status = $('.demo-status-select', row).value;
-        await demoRequest(`/shipments/${encodeURIComponent(button.dataset.id)}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-      } else if (api.demo && serviceButton) {
-        await demoRequest(`/services/${encodeURIComponent(button.dataset.id)}`, { method: 'PATCH', body: JSON.stringify({ active: button.dataset.active === 'true' }) });
-      } else if (bookingButton) {
-        const id = encodeURIComponent(button.dataset.id); const version = Number(button.dataset.version || 0);
-        const action = button.dataset.bookingAction;
-        if (action === 'allocate') await request(`/v1/admin/bookings/${id}/allocation-start`, { method: 'POST' });
-        else if (action === 'accept' || action === 'reject') await request(`/v1/partners/me/bookings/${id}/${action}`, { method: 'POST', body: JSON.stringify({ expectedVersion: version }) });
-        else if (action === 'arrive' || action === 'start') await request(`/v1/partners/me/bookings/${id}/${action}`, { method: 'POST', body: JSON.stringify({ expectedVersion: version }) });
-        else if (action === 'complete') await request(`/v1/partners/me/bookings/${id}/complete`, { method: 'POST', body: JSON.stringify({ expectedVersion: version, completionNotes: '' }) });
-        else if (action === 'confirm') {
-          const otp = window.prompt('Enter the customer completion code. Leave blank only when OTP confirmation is disabled.');
-          if (otp === null) { button.disabled = false; return; }
-          await request(`/v1/bookings/${id}/completion-confirmation`, { method: 'POST', body: JSON.stringify(otp ? { otp: otp.trim() } : { confirmed: true }) });
-        }
-      } else {
-        const id = encodeURIComponent(button.dataset.id);
-        if (button.dataset.partnerAction === 'verify') await request(`/v1/admin/partners/${id}/verification`, { method: 'PATCH', body: JSON.stringify({ approved: true }) });
-        if (button.dataset.partnerAction === 'activate') await request(`/v1/admin/partners/${id}/status`, { method: 'PATCH', body: JSON.stringify({ active: true }) });
-      }
-      if (api.demo) await connectDemo(false); else await connectLive();
-      toast(api.demo ? 'Saved to demo workspace.' : 'Saved. The workspace has been refreshed from the API.');
-    } catch (error) { toast(error.message); button.disabled = false; }
-  }
-  async function submitBooking(event) {
-    event.preventDefault(); const message = $('#booking-message'); const button = $('#submit-booking'); message.textContent = '';
-    if (!api.token && !api.demo) { message.textContent = 'Open the demo workspace or connect a customer API account before creating a booking.'; openModal('connect-modal'); return; }
-    const formElement = event.currentTarget;
-    const data = Object.fromEntries(new FormData(formElement)); button.disabled = true; button.textContent = 'Creating…';
-    try {
-      if (api.demo) {
-        await demoRequest('/bookings', { method: 'POST', body: JSON.stringify(data) });
-        await connectDemo(false); closeModal('booking-modal'); formElement.reset(); dateDefaults(); showPage('bookings'); toast('Demo booking created.'); return;
-      }
-      let profile = await request('/v1/customers/me').catch(async error => { if (error.status !== 404) throw error; return request('/v1/customers', { method: 'POST', body: JSON.stringify({ name: data.name, email: data.email, phone: data.phone }) }); });
-      if (!profile) throw new Error('Could not create customer profile.');
-      if (profile.name !== data.name || profile.email !== data.email || profile.phone !== data.phone) {
-        profile = await request('/v1/customers/me', { method: 'PATCH', body: JSON.stringify({ name: data.name, email: data.email, phone: data.phone }) });
-      }
-      const booking = await request('/v1/bookings', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ serviceCategory: data.category, requiredSkill: data.skill, appointmentDate: data.date, appointmentStart: data.time, serviceDurationMinutes: Number(data.duration), address: data.address, latitude: Number(data.latitude), longitude: Number(data.longitude), notes: data.notes || '' }) });
-      const newItem = normalizeBooking({ ...booking, customerName: profile.name, customerEmail: profile.email, category: data.category, requiredSkill: data.skill, appointmentDate: data.date, appointmentStart: data.time, serviceDurationMinutes: Number(data.duration) });
-      bookings.unshift(newItem); renderAll(); closeModal('booking-modal'); formElement.reset(); dateDefaults(); showPage('bookings'); toast('Booking created. We’re finding the right care partner.');
-    } catch (error) { message.textContent = `${error.message}. Check that this token has the CUSTOMER role and the API is reachable.`; }
-    finally { button.disabled = false; button.innerHTML = 'Create booking <span>→</span>'; }
-  }
-  function initialize() {
-    $('#today-label').textContent = prettyDate(today, { weekday: 'short', month: 'short', day: 'numeric' });
-    $('#schedule-date').textContent = prettyDate(today, { month: 'long', day: 'numeric' });
-    $('#route-date').textContent = prettyDate(routeDay, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-    bindEvents(); renderAll(); setLive(Boolean(api.token));
-    if (api.token) connectLive().catch(error => { setLive(false); toast(`Live data could not load: ${error.message}`); });
-    else connectDemo(false).catch(() => setLive(false));
-    $('#booking-form [name="category"]').addEventListener('change', e => { const skill = $('#booking-form [name="skill"]'); skill.value = ''; skill.placeholder = { NURSING: 'e.g. RN', AYURVEDIC_THERAPY: 'e.g. Panchakarma', COUNSELLING: 'e.g. Family counselling' }[e.target.value]; });
-  }
+  window.setInterval(async () => {
+    if (api.demo || !api.token || document.visibilityState !== 'visible' || !['bookings','services'].includes(page)) return;
+    if ($('#booking-search') && document.activeElement === $('#booking-search')) return;
+    try { await loadWorkspace(); drawPage(); bindPage(); } catch { /* Keep the last successfully loaded snapshot on transient errors. */ }
+  }, 20000);
   initialize();
-  window.setInterval(() => { if ((api.token || api.demo) && document.visibilityState === 'visible') (api.demo ? connectDemo(false) : connectLive()).catch(() => {}); }, 30000);
 })();

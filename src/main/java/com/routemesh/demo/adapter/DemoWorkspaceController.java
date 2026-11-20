@@ -46,9 +46,10 @@ class DemoWorkspaceController {
     @PatchMapping("/dev/demo/shipments/{id}")
     Map<String, Object> updateShipment(@PathVariable String id, @RequestBody StatusIn body) { return workspace.updateShipment(id, body.status()); }
 
+    @PostMapping("/dev/demo/services")
+    Map<String, Object> createService(@RequestBody Map<String, Object> body) { return workspace.createService(body); }
     @PatchMapping("/dev/demo/services/{id}")
-    Map<String, Object> updateService(@PathVariable String id, @RequestBody ServiceIn body) { return workspace.updateService(id, body.active()); }
+    Map<String, Object> updateService(@PathVariable String id, @RequestBody Map<String, Object> body) { return workspace.updateService(id, body); }
 
     record StatusIn(String status) { }
-    record ServiceIn(boolean active) { }
 }

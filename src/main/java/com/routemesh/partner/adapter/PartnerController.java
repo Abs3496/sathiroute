@@ -121,6 +121,12 @@ class PartnerController {
         return partners.adminList(caller, status);
     }
 
+    @PostMapping("/v1/admin/partners")
+    @ResponseStatus(HttpStatus.CREATED)
+    Profile createManual(Caller caller, @Valid @RequestBody Registration in) {
+        return partners.createManual(caller, in);
+    }
+
     @PatchMapping("/v1/admin/partners/{id}/verification")
     Profile verify(Caller caller, @PathVariable UUID id, @Valid @RequestBody VerificationIn in) {
         if (in == null || in.approved() == null) throw ApiException.invalid("approved is required");

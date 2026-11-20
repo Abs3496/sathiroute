@@ -22,12 +22,15 @@ public interface BookingStore {
                    Instant appointmentStartAt, Instant appointmentEndAt,
                    int durationMinutes, String address, GeoPoint location, String notes, UUID assignedPartnerId,
                    BookingStatus status, long version, Instant createdAt, Instant updatedAt) { }
+    record PartnerMatch(UUID partnerId, String name, String phone, double latitude, double longitude,
+                        double distanceKm, boolean active, boolean available) { }
 
     Optional<Customer> customer(String subject);
     Customer insertCustomer(UUID id, String subject, String name, String email, String phone, Instant now);
     void updateCustomer(String subject, String name, String email, String phone, Instant now);
     void insertBooking(Booking booking);
     Optional<Booking> booking(UUID id);
+    List<PartnerMatch> recommendPartners(UUID bookingId, Instant locationCutoff);
     List<Booking> bookings(String subject, int limit, int offset);
     List<Booking> adminBookings(int limit, int offset);
     List<Booking> partnerBookings(String partnerSubject, int limit, int offset);

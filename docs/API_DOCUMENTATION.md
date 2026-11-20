@@ -14,7 +14,7 @@ The Compose development stack enables an isolated, in-memory showcase API at `/d
 | `POST /dev/demo/bookings`, `PATCH /dev/demo/bookings/{id}` | Create a demo booking or advance its status. |
 | `POST /dev/demo/partners`, `PATCH /dev/demo/partners/{id}` | Add a pending demo partner or approve/activate it. |
 | `POST /dev/demo/shipments`, `PATCH /dev/demo/shipments/{id}` | Create a demo shipment or update its delivery status. |
-| `PATCH /dev/demo/services/{id}` | Enable or pause a demo service. |
+| `POST /dev/demo/services`, `PATCH /dev/demo/services/{id}` | Add an active demo service offering or enable/pause a demo service. |
 
 ## Partner management APIs
 
@@ -39,6 +39,16 @@ The Compose development stack enables an isolated, in-memory showcase API at `/d
 | `PATCH /v1/admin/partners/{id}/status` | Dispatcher subject | Body `{"active":true|false}`; activation requires approval. |
 
 The identity provider handles partner login and token issuance. Qualification approval is a manual dispatcher attestation. Allocation consumes availability, time off, location, and workload when selecting an offer.
+
+## Service catalogue APIs
+
+| Method and path | Access | Behavior |
+|---|---|---|
+| `GET /v1/admin/services` | Admin, dispatcher, or operations manager | List active and paused Nursing, Ayurvedic Therapy, and Counselling offerings. |
+| `POST /v1/admin/services` | Admin or dispatcher | Create an active offering with `category`, `name`, and optional `serviceCode` and `description`. Codes are unique. |
+| `PATCH /v1/admin/services/{id}` | Admin or dispatcher | Update `name` and/or `description`, and set `active` to pause or reactivate an offering. |
+
+Default category entries are seeded by migration. Changes are stored in PostgreSQL and creation records the caller subject. These catalogue controls do not replace partner skill verification or booking allocation.
 
 ## Customer and booking APIs
 
@@ -76,7 +86,7 @@ The identity provider handles partner login and token issuance. Qualification ap
 
 Partner decision bodies use `{"expectedVersion": 2, "reason": "optional explanation"}`. Booking status changes are recorded in `service_booking_status_history`; execution-specific events and evidence metadata are stored separately. Set `ROUTEMESH_SERVICE_COMPLETION_OTP_REQUIRED=true` to require a customer code before closing a booking. OTP hashes are booking-scoped HMACs; wrong attempts are recorded and limited to five.
 
-Service codes are submitted identifiers; there is no admin-managed service catalogue. Allocation offers are pull-based through partner booking reads. Route reconciliation runs every 30 seconds for the next 30 days; strict route recalculation is available to dispatchers.
+Booking skill codes remain submitted identifiers and are not automatically linked to catalogue entries. Allocation offers are pull-based through partner booking reads. Route reconciliation runs every 30 seconds for the next 30 days; strict route recalculation is available to dispatchers.
 
 ## Existing delivery APIs
 

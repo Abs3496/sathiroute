@@ -22,14 +22,16 @@ public class ServiceEventNotifier {
     private final BookingStore bookings;
     private final PartnerStore partners;
     private final Mailer mailer;
+    private final SmsSender sms;
     private final RouteMeshProperties properties;
 
     public ServiceEventNotifier(ProcessedEvents processed, BookingStore bookings, PartnerStore partners,
-                                Mailer mailer, RouteMeshProperties properties) {
+                                Mailer mailer, SmsSender sms, RouteMeshProperties properties) {
         this.processed = processed;
         this.bookings = bookings;
         this.partners = partners;
         this.mailer = mailer;
+        this.sms = sms;
         this.properties = properties;
     }
 
@@ -54,10 +56,23 @@ public class ServiceEventNotifier {
                             + ". We will notify you when a partner is assigned.");
             case "PARTNER_ALLOCATION_OFFER", "PARTNER_REASSIGNED" -> {
                 String partnerId = (String) event.data().get("partnerId");
-                if (partnerId != null) partners.findById(UUID.fromString(partnerId)).ifPresent(p ->
-                        send(List.of(p.email()), "New SathiHomeCare service offer: " + ref,
-                                "A " + booking.category() + " service is scheduled for " + date
-                                        + ". Sign in to review and accept or reject booking " + ref + "."));
+                if (partnerId != null) partners.findById(UUID.fromString(partnerId)).ifPresent(p -> {
+                    send(List.of(p.email()), "New SathiHomeCare service offer: " + ref,
+                            "A " + booking.category() + " service is scheduled for " + date
+                                    + ". Sign in to review and accept or reject booking " + ref + ".");
+                    if (type.equals("PARTNER_ALLOCATION_OFFER")) {
+                        String update = "Hello " + customer + ", " + p.name()
+                                + " has been assigned to your SathiHomeCare visit for " + date
+                                + ". Partner phone: " + p.phone() + ". Booking: " + ref + ".";
+                        send(List.of(booking.customerEmail()), "Care partner assigned: " + ref, update);
+                        sms.send(booking.customerPhone(), update);
+                    }
+                    if (type.equals("PARTNER_REASSIGNED"))
+                        sms.send(booking.customerPhone(), "Your SathiHomeCare visit has a new care partner: "
+                                + p.name() + ", " + p.phone() + ". Appointment " + date + ". Ref " + ref + ".");
+                    sms.send(p.phone(), "New SathiHomeCare service offer " + ref + ", " + date
+                            + ". Sign in to review and accept or reject.");
+                });
                 if (type.equals("PARTNER_REASSIGNED")) {
                     send(List.of(booking.customerEmail()), "Partner updated for booking " + ref,
                             "Your service booking has been offered to another available partner. Appointment: " + date + ".");
@@ -65,8 +80,12 @@ public class ServiceEventNotifier {
                             "Booking " + ref + " has been offered to a replacement partner.");
                 }
             }
-            case "PARTNER_ACCEPTED" -> send(List.of(booking.customerEmail()), "Booking confirmed: " + ref,
-                    "Hello " + customer + ", your SathiHomeCare partner accepted the booking for " + date + ".");
+            case "PARTNER_ACCEPTED" -> {
+                String confirmation = "Hello " + customer + ", your SathiHomeCare partner accepted the booking for "
+                        + date + ". Booking: " + ref + ".";
+                send(List.of(booking.customerEmail()), "Booking confirmed: " + ref, confirmation);
+                sms.send(booking.customerPhone(), confirmation);
+            }
             case "PARTNER_REJECTED" -> {
                 send(List.of(booking.customerEmail()), "Partner update for booking " + ref,
                         "The offered partner could not take this booking. We are looking for another available partner.");

@@ -38,6 +38,18 @@ public class DemoWorkspace {
     }
 
     public synchronized Map<String, Object> createBooking(Map<String, Object> input) {
+        String requestedCategory = String.valueOf(input.getOrDefault("category", input.getOrDefault("serviceCategory", "NURSING")));
+        Map<String, Object> categoryService = services.stream().filter(s -> requestedCategory.equals(s.get("id"))
+                || requestedCategory.equals(s.get("category")) && requestedCategory.equals(s.get("serviceCode"))).findFirst().orElse(null);
+        if (categoryService != null && Boolean.FALSE.equals(categoryService.get("active"))) {
+            throw new IllegalArgumentException("This service category is paused");
+        }
+        String requestedSkill = String.valueOf(input.getOrDefault("skill", input.getOrDefault("requiredSkill", ""))).trim();
+        boolean pausedOffering = services.stream().anyMatch(s -> requestedCategory.equals(s.get("category"))
+                && Boolean.FALSE.equals(s.get("active"))
+                && (requestedSkill.equalsIgnoreCase(String.valueOf(s.get("name")))
+                || requestedSkill.equalsIgnoreCase(String.valueOf(s.get("serviceCode")))));
+        if (pausedOffering) throw new IllegalArgumentException("This service offering is paused");
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", "DEMO-BK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         row.put("customerName", input.getOrDefault("name", input.getOrDefault("customerName", "Demo Customer")));
@@ -103,9 +115,41 @@ public class DemoWorkspace {
         return Map.copyOf(row);
     }
 
-    public synchronized Map<String, Object> updateService(String id, boolean active) {
-        Map<String, Object> service = find(services, id); service.put("active", active);
+    public synchronized Map<String, Object> createService(Map<String, Object> input) {
+        String name = String.valueOf(input.getOrDefault("name", "")).trim();
+        String category = String.valueOf(input.getOrDefault("category", "NURSING")).trim();
+        if (name.isBlank()) throw new IllegalArgumentException("Service name is required");
+        if (!List.of("NURSING", "AYURVEDIC_THERAPY", "COUNSELLING").contains(category))
+            throw new IllegalArgumentException("Unknown service category");
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", "DEMO-SVC-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        row.put("name", name); row.put("category", category); row.put("active", true);
+        row.put("description", input.getOrDefault("description", "")); row.put("createdAt", LocalDateTime.now().toString());
+        services.add(row); addActivity("Service offering created", name, category);
+        return Map.copyOf(row);
+    }
+
+    public synchronized Map<String, Object> updateService(String id, Map<String, Object> input) {
+        Map<String, Object> service = find(services, id);
+        if (input.containsKey("active")) service.put("active", Boolean.TRUE.equals(input.get("active")));
+        if (input.containsKey("name")) {
+            String name = String.valueOf(input.get("name")).trim();
+            if (name.isBlank() || name.length() > 120) throw new IllegalArgumentException("Service name must be 1..120 characters");
+            service.put("name", name);
+        }
+        if (input.containsKey("description")) {
+            String description = String.valueOf(input.get("description")).trim();
+            if (description.length() > 1000) throw new IllegalArgumentException("Service description is too long");
+            service.put("description", description);
+        }
+        service.put("updatedAt", LocalDateTime.now().toString());
+        addActivity("Service updated", String.valueOf(service.get("name")), String.valueOf(service.getOrDefault("category", id)));
         return Map.copyOf(service);
+    }
+
+    /** Compatibility for callers that only toggle the active flag. */
+    public synchronized Map<String, Object> updateService(String id, boolean active) {
+        return updateService(id, Map.of("active", active));
     }
 
     public synchronized List<Map<String, Object>> report() {

@@ -66,6 +66,28 @@ public class PartnerService {
         return profile(caller);
     }
 
+    @Transactional
+    public Profile createManual(Caller caller, Registration in) {
+        caller.requireAdmin();
+        if (in == null) throw ApiException.invalid("partner details are required");
+        requireText(in.name(), "name");
+        requireText(in.email(), "email");
+        requireText(in.phone(), "phone");
+        requireText(in.qualificationDetails(), "qualificationDetails");
+        validateRadius(in.serviceRadiusKm());
+        if (!store.centreExists(in.centreId())) throw ApiException.invalid("unknown-centre", "operating centre not found");
+        var skills = validateSkills(in.skills(), false);
+        UUID id = UUID.randomUUID();
+        String code = "SP-" + id.toString().substring(0, 8).toUpperCase();
+        try {
+            store.create(id, null, in.centreId(), code, in.name().trim(), in.email().trim(), in.phone().trim(),
+                    in.qualificationDetails().trim(), in.serviceRadiusKm(), clock.instant(), skills);
+        } catch (DuplicateKeyException e) {
+            throw ApiException.conflict("partner-already-registered", "partner email or code is already registered");
+        }
+        return store.findById(id).orElseThrow(() -> ApiException.notFound("partner"));
+    }
+
     public Profile profile(Caller caller) {
         caller.requireServicePartner();
         return own(caller);
